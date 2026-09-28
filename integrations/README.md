@@ -13,6 +13,8 @@ The mutation file may include `summary` and `integration_upsert`. The Bot tells 
 
 A future `lease_until` held by a different `owner` means do not import and do not start a second schedule. A different `membership_fingerprint` means this workbook is already linked to another membership.
 
+The retailer login is read-only. The Bot does not buy, check out, or place an order with it. Purchasing stays under human control.
+
 | Store | Setup |
 |---|---|
 | Costco | [integrations/costco/SETUP.md](costco/SETUP.md) |

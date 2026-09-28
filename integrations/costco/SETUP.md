@@ -26,6 +26,8 @@ Computer Update, Recover, and Reset remove installed packages, so every later ru
 
 Open `https://www.costco.com` in this computer’s browser and let the person log in there. Do not ask them to paste a Costco password into chat.
 
+The Costco login is only for reading receipts and prices. Do not use the credentials, the refresh token, or this browser session to buy anything on the shopping list, check out, or place an order. Purchasing stays solely with the person.
+
 Save the browser refresh token:
 
 ```bash
