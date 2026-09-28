@@ -46,55 +46,11 @@ Choose **File → Make a copy**. Name it something like “Pantry Wizard”. The
 
 Copy the URL of **your** sheet from the address bar. That is the URL you will give the bot. If you paste the template link, the bot will try to edit a sheet it should not change.
 
-### 2. Make a Sheets-only OAuth token
-
-You create a token in your own Google Cloud project and store it on the bot. The token’s only scope is the Sheets API, so the bot calls `sheets.googleapis.com` for the spreadsheet id in your sheet URL.
-
-Do this while signed in as the Google account that owns your copy. That account must be able to edit the sheet. If you mint the token as someone else, share the copy with that account as **Editor**.
-
-1. In [Google Cloud Console](https://console.cloud.google.com/), create a project. Name it something like “Pantry Wizard”.
-2. Enable the **Google Sheets API** for that project. Do not enable the Drive API.
-3. Open **Google Auth platform → Audience**. Choose **External**. Add your own Google address under **Test users**.
-4. Open **Data access** and add only this scope: `https://www.googleapis.com/auth/spreadsheets`. That scope reads and writes spreadsheets the signed-in account can edit.
-5. Open **Clients → Create client**. Choose **Web application**. Under **Authorized redirect URIs** add `https://developers.google.com/oauthplayground`. Copy the client id and client secret.
-6. Open the [OAuth 2.0 Playground](https://developers.google.com/oauthplayground/). Click the gear and turn on **Use your own OAuth credentials**. Paste the client id and client secret.
-7. In the scope box, enter `https://www.googleapis.com/auth/spreadsheets`. Click **Authorize APIs**. Sign in as the account that can edit your copy. If Google says the app is unverified, choose **Advanced** and continue. It is your project.
-8. Click **Exchange authorization code for tokens**. Copy the `refresh_token`. The bot exchanges it for a short-lived access token each time it calls the API.
-
-While the consent screen stays in **Testing**, Google expires that refresh token after 7 days. For a bot that runs every day, set the audience to **In production**. You do not need Google to verify the app when the only user is you. You will still click through the unverified-app warning once.
-
-### 3. Store the token on the bot
-
-Do not paste the refresh token, client secret, or client id into the chat.
-
-Open that Bot’s **Secrets** and add three secrets. The description is visible to the bot. The value is not. See [Store secrets securely](https://cursor.com/help/grok-bot/secrets).
-
-| Name | What it is |
-|---|---|
-| `GOOGLE_CLIENT_ID` | The OAuth client id |
-| `GOOGLE_CLIENT_SECRET` | The OAuth client secret |
-| `GOOGLE_REFRESH_TOKEN` | The refresh token from the playground |
-
-In each description, say that these are for the Google Sheets API only, and paste the URL of your sheet copy.
-
-### 4. If the Sheets API refuses the bot
-
-| What you see | What to do |
-|---|---|
-| `accessNotConfigured` or API has not been used | Enable the Google Sheets API on that Cloud project, wait a minute, and try again. |
-| `redirect_uri_mismatch` | The OAuth client is missing `https://developers.google.com/oauthplayground` as a redirect URI. Add it, then authorize again. |
-| `access_denied`, or Google will not show the consent screen | The app is in Testing and that Google account is not a test user. Add the address under Audience → Test users. |
-| Unverified app | Choose Advanced and continue. This is your Cloud project, used by you. |
-| `invalid_client` | The client id or client secret saved on the bot does not match the Cloud client. Replace the secret. You cannot read the old value back. |
-| `invalid_grant` | The refresh token was revoked, expired, or minted for a different client. Testing-mode tokens die after 7 days. Run the playground again and replace `GOOGLE_REFRESH_TOKEN`. Put the app in production if this keeps happening. |
-| `403` The caller does not have permission | The Google account that created the token cannot edit this sheet. Share your copy with that account as Editor, or mint a new token while signed in as the owner. |
-| The bot says it cannot see the secret | Tell it the environment variable names above. Ask it to request a missing one with the secure secret card. Do not paste the value into the message. |
-
-Revoke a token you pasted into chat, or one you want to throw away, at [Google Account permissions](https://myaccount.google.com/permissions). Then mint a new refresh token.
-
-### 5. The prompt
+### 2. The prompt
 
 Start a new chat with that bot and send this. Replace the sheet URL with your copy.
+
+The bot walks you through Google Cloud. You do the clicks it names. When it asks for the key, attach the JSON file to the chat, or hand it over in the secure field it shows. The message itself stays free of keys.
 
 ```text
 Set up Pantry Wizard for this household.
@@ -102,11 +58,12 @@ Set up Pantry Wizard for this household.
 Our workbook is this Google Sheet, our copy, not the template:
 <paste the URL of your copy>
 
-Read and write it with the Google Sheets API. Do not use the Google Drive or Google Sheets plugins.
-The Bot secrets GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REFRESH_TOKEN are a token I created in my own Google Cloud project.
-Its only scope is https://www.googleapis.com/auth/spreadsheets.
-Refresh an access token at https://oauth2.googleapis.com/token, then call https://sheets.googleapis.com for the spreadsheet id in that URL.
-Do not print those secrets. If one is missing, ask for it with the secure secret card.
+Walk me through Google Cloud so you can read and write that sheet with the Sheets API.
+Have me select or create a project named Pantry Wizard, enable the Google Sheets API, create a service account, and download a JSON key.
+When the service-account form asks for a project role, tell me to leave the role blank and continue. A Cloud IAM role does not open the spreadsheet. Skip the Drive API as well.
+After you have the key, tell me the client_email and have me share this sheet with that address as Editor. That share is the permission.
+Take the JSON key as a file I attach, or through a secure field. Store it as a bot secret. Do not ask me to paste the private key into the chat, and do not print the key.
+Call https://sheets.googleapis.com for the spreadsheet id in the URL above. Do not use the Google Drive or Google Sheets plugins.
 
 Load and follow these runtime instructions before you change anything:
 https://raw.githubusercontent.com/esper256/shared-agentic-shopping-list/main/AGENT_RUNTIME_INSTRUCTIONS.md
@@ -123,7 +80,32 @@ When the instructions are actually loaded, say the activation line they require.
 Then tell me you can read the sheet, and quote the protocol_version you see in Config.
 ```
 
-### 6. How you know it is ready
+### 3. What you will click
+
+The bot sends the links and waits. A few screens in that console are easy to misread.
+
+Select the Pantry Wizard project in the top bar, then enable the Google Sheets API. The bot will point at `https://console.cloud.google.com/apis/library/sheets.googleapis.com`. If the project link misses, open that page and pick Pantry Wizard from the project picker.
+
+Then: **IAM & Admin → Service Accounts → Create service account**. The form’s second step offers a role on the Cloud project. Leave that role empty and continue. The same for the optional step that grants other people access to the service account. That dropdown is project IAM. It does not give anyone the spreadsheet, and picking Owner or Editor there only adds Cloud permissions you do not need.
+
+On the new service account: **Keys → Add key → Create new key → JSON**. Google downloads one file. Attach that file to the chat, or drop it in the secure field. See [Store secrets securely](https://cursor.com/help/grok-bot/secrets). The bot keeps the key as a secret for later chats.
+
+Share your sheet copy with the service account as **Editor**. The address ends in `.iam.gserviceaccount.com`. The bot reads `client_email` from the JSON and tells you which address to add. That share is what lets it read and write the sheet.
+
+The Sheets API is the one to enable. If a step offers the Drive API, skip it.
+
+### 4. If the Sheets API refuses the bot
+
+| What you see | What to do |
+|---|---|
+| `accessNotConfigured`, or the API has not been used | Enable the Google Sheets API on the Pantry Wizard project, wait a minute, and try again. |
+| The form asks you to pick a role | Leave the role blank and continue. |
+| `403` The caller does not have permission | Share your copy with the service account email as Editor. A project IAM role will not fix this. |
+| The bot cannot open the sheet, and the address it used is your Gmail | Share the sheet with the `client_email` from the JSON, the address ending in `.iam.gserviceaccount.com`. |
+| The bot asks you to paste the JSON or the private key | Attach the file, or use the secure field. If the key already appeared in the chat, delete that key under the service account’s Keys list and create a new JSON key. |
+| The key is rejected, or `invalid_grant` | The key was deleted, or it belongs to another project. Create a new JSON key on this service account and attach that file. |
+
+### 5. How you know it is ready
 
 The bot is ready when it says this exact line:
 
