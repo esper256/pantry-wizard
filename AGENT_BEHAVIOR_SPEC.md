@@ -1,7 +1,7 @@
 # Agent Behavior Specification
 
 **Status:** Baseline specification  
-**Version:** 0.6
+**Version:** 0.7
 
 ## Document Purpose
 
@@ -128,7 +128,7 @@ The acknowledgement SHOULD be deliberately distinctive and SHOULD include the ru
 
 Example:
 
-> Shopping data steward active — runtime instructions v0.6 loaded.
+> Shopping data steward active — runtime instructions v0.7 loaded.
 
 The agent MUST NOT emit this acknowledgement unless the applicable runtime instructions were actually available to it.
 
@@ -188,11 +188,13 @@ When beginning shopping-system work, the agent SHOULD inspect the shared system'
 
 The agent SHOULD determine whether the runtime instruction version available in its active context matches the current shared `protocol_version`.
 
-If the versions differ, the agent MUST load the current runtime instructions from `runtime_instructions_url` before modifying shared state.
+If the loaded runtime instructions are newer than `Config.protocol_version`, the agent MUST set `Config.protocol_version` to the loaded Protocol Version. If the loaded behavior spec is newer than `Config.behavior_spec_version`, the agent MUST set that key to the loaded spec version. This is housekeeping. The agent MUST do it without asking the person and MUST NOT wait for approval before other work. The agent MUST NOT lower either version.
 
-Before persistent writes, the agent MUST load that URL when needed and MUST verify that the loaded document's declared Protocol Version equals `Config.protocol_version`.
+If Config names a newer protocol than the instructions in context, the agent MUST load `runtime_instructions_url` and follow that document before other writes.
 
-If they disagree, the agent MUST NOT perform potentially corrupting writes. It SHOULD tell the user and reload the matching protocol.
+Before persistent household writes, the loaded document's Protocol Version and `Config.protocol_version` MUST match. Writing the newer loaded version into Config is how they match. That write is not a corrupting household mutation.
+
+If the document Config names cannot be loaded, the agent MUST NOT write household data. It MUST tell the person.
 
 `runtime_instructions_url` MAY point at a mutable branch such as `main` during development. For releases, prefer immutable tag or commit URLs over `main`.
 
@@ -220,7 +222,7 @@ When an agent initially loads the runtime instructions, or loads a different run
 
 Example:
 
-> Shopping data steward active — runtime instructions v0.6 loaded.
+> Shopping data steward active — runtime instructions v0.7 loaded.
 
 Routine verification that an already-active version remains current SHOULD NOT repeatedly generate activation messages.
 
@@ -342,14 +344,14 @@ At minimum it SHOULD support:
 ```text
 key                         value
 ------------------------------------------------------------
-protocol_version            0.6
+protocol_version            0.7
 runtime_instructions_url    <authoritative runtime document>
 ```
 
 It MAY additionally contain:
 
 ```text
-behavior_spec_version       0.6
+behavior_spec_version       0.7
 schema_version              0.2
 schema_url                  <authoritative schema document>
 ```
@@ -358,7 +360,7 @@ Connected stores live on `Integrations`, one row per store, updated in place. Do
 
 Configuration metadata is not ordinary household inventory and SHOULD NOT be modified casually by agents.
 
-Only explicit administrative intent or an authorized system upgrade SHOULD change protocol or schema metadata.
+A forward update of `protocol_version` or `behavior_spec_version` to the version the agent has loaded is housekeeping. The agent MUST apply it without asking. Schema structure still changes only through the schema upgrade note.
 
 ---
 
@@ -1944,10 +1946,10 @@ Relevant rules:
 Shared configuration:
 
 ```text
-protocol_version = 0.6
+protocol_version = 0.7
 ```
 
-Agent can reliably establish that runtime instructions v0.6 are currently active.
+Agent can reliably establish that runtime instructions v0.7 are currently active.
 
 Human:
 
@@ -1956,7 +1958,7 @@ Human:
 Interpretation:
 
 - no redundant full protocol reload is required;
-- process the observation under v0.6;
+- process the observation under v0.7;
 - do not repeat the activation acknowledgement merely because configuration was checked.
 
 Relevant rules:
@@ -1970,26 +1972,52 @@ Relevant rules:
 Conversation originally loaded:
 
 ```text
-runtime instructions v0.5
+runtime instructions v0.6
 ```
 
 Shared configuration now says:
 
 ```text
-protocol_version = 0.6
-runtime_instructions_url = <authoritative v0.6 document>
+protocol_version = 0.7
+runtime_instructions_url = <authoritative v0.7 document>
 ```
 
 Interpretation:
 
-1. retrieve runtime instructions v0.6;
+1. retrieve runtime instructions v0.7;
 2. make them available in active context;
-3. emit the v0.6 activation acknowledgement;
+3. emit the v0.7 activation acknowledgement;
 4. only then perform persistent household mutations.
 
 Relevant rules:
 
 `RUNTIME-03`, `RUNTIME-04`, `RUNTIME-06`.
+
+---
+
+## EXAMPLE-10 — Loaded instructions are newer than the sheet
+
+The agent has loaded runtime instructions v0.7. The behavior spec it loaded is also v0.7.
+
+Shared configuration still says:
+
+```text
+protocol_version = 0.6
+behavior_spec_version = 0.6
+```
+
+Interpretation:
+
+1. set `protocol_version` to `0.7` and `behavior_spec_version` to `0.7`;
+2. do not ask the person;
+3. do not wait for approval;
+4. continue the household work that was already asked for.
+
+Do not lower a version. If the sheet already names a newer protocol than the text in context, load that document instead of writing the sheet backward.
+
+Relevant rules:
+
+`RUNTIME-04`, `DATA-04`.
 
 ---
 
