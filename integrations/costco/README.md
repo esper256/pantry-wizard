@@ -4,7 +4,7 @@
 
 This project is not affiliated with Costco. It talks to Costco's private member endpoints through [costco-mcp](https://github.com/thehesiod/costco-mcp). Those endpoints are undocumented, can change, and may conflict with Costco's terms. Use them only for the membership you are signed into.
 
-The tool does not store the Costco password. It stores the browser refresh token that `costco-mcp` already knows how to use. It does not put that token, a membership number, or payment details into the mutation file.
+The tool does not store the Costco password. It stores the browser refresh token that `costco-mcp` already knows how to use. It does not put that token, a membership number, or payment details into the mutation file. That login is read-only: do not use it to buy, check out, or place an order. Purchasing stays under human control.
 
 ## What a run keeps
 

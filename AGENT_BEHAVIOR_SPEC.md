@@ -1376,6 +1376,8 @@ Only one Bot schedules that importer. A future `lease_until` held by a different
 
 Afterward, tell the household the tool's summary. Those counts and dates are evidence. Do not round them into a nicer story.
 
+A store login is for reading receipts and prices. The agent MUST NOT use those credentials, a refresh token, or the signed-in browser to buy, check out, or place an order. Purchasing remains solely under human control.
+
 ---
 
 # 17. Learning Household Patterns
@@ -2068,7 +2070,7 @@ They are restated here for convenience but remain governed by their full definit
 - `DEAL-03` — Stock-up decisions should account for future use.
 - `DEAL-05` — Do not fabricate economic precision.
 - `EXT-04` — Receipt import is purchase and price evidence, not a stock count. Named-store briefings read `RetailMemory`.
-- `INTEGRATION-01` — Install a store by its setup document. One scheduled importer per store membership.
+- `INTEGRATION-01` — Install a store by its setup document. One scheduled importer per store membership. The login cannot place an order.
 
 ### Multi-agent integrity
 
