@@ -14,7 +14,7 @@ Each real receipt line becomes a `purchased` event. An instant-savings child (de
 
 Current prices are requested only for item numbers already on a warehouse receipt, already in `RetailMemory`, or confidently matched to a household item that is requested, low, or already tied to Costco. One run prices new receipt lines, household-linked rows, and real promotions before a first pass of numbers that have never been priced, newest purchase first. While any number is still unchecked, the run prices up to 240 of that list and leaves routine rechecks for later. Once every number has been checked, a run prices up to 80 that are due, oldest due first. A promotion is checked again in about a day. A quiet price is checked in about a week, or about 30 days when the last purchase was more than a year ago or has no date. A cheaper-than-usual price with no store promotion waits with the quiet prices. A number Costco does not price stays on the sheet, and the wait before the next check doubles up to about 90 days. That schedule is in `~/.costco-sync/state.db`, not in the workbook. There is no walk of the savings circular. An ambiguous name search is left unmatched.
 
-A current row is a price reduction when the quoted regular price is at least $0.10 above the current price, or the current price is at least $0.10 under this household's non-sale baseline. The same price on a later day does not add another event.
+A warehouse sale is recorded when Costco's price before the promotion is at least $0.10 above the price after it. The end date is kept when the promotion includes one. A price at least $0.10 under this household's non-sale baseline is `below_baseline`. That is not a warehouse sale, and a lower price than the last receipt is not one either. A per-pound quote for a variable-weight item is not compared with the package price on a receipt. The same price on a later day does not add another event.
 
 `price_scope=warehouse` is set only when the payload has a warehouse price field. A generic catalog price is recorded as `online` and is not the warehouse shelf tag.
 
@@ -109,7 +109,7 @@ One shopping Bot runs this on its cloud computer. No public MCP server is involv
 1. Connect Google Drive and Google Sheets for the household account.
 2. Clone this repo under `/workspace` and install `integrations/costco`.
 3. Ask the person to open Account, then Orders & Purchases, then copy the `refreshtoken` secret from Chrome DevTools on their own computer, as [SETUP.md](SETUP.md) describes. Do not scrape it. Save it with `costco-sync auth --refresh-token-stdin`.
-4. Load runtime instructions v0.7 and follow [SETUP.md](SETUP.md). When Costco’s API fails, file a redacted issue as [integrations/README.md](../README.md) describes.
+4. Load runtime instructions v0.8 and follow [SETUP.md](SETUP.md). When Costco’s API fails, file a redacted issue as [integrations/README.md](../README.md) describes.
 5. Save a skill: reinstall the package, export the snapshot, run `costco-sync run`, apply the mutation file, renew the lease, and stop without writing if the command exits 2, 3, or 4.
 6. Schedule that skill daily only after the setup summary has been said. It should report an auth failure or a newly reduced staple, and stay quiet otherwise.
 

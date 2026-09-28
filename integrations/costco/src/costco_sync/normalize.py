@@ -158,6 +158,7 @@ def parse_summary_prices(products: list[dict], warehouse_number: str) -> list:
                 price_scope="warehouse",
                 product_name=_summary_name(product),
                 explicit_instant_savings=explicit,
+                variable_weight=_variable_weight(product),
             )
         )
     return quotes
@@ -198,14 +199,23 @@ def _promotion_end(discounts: object, warehouse: str) -> str:
     return max(ends) if ends else ""
 
 
-def _summary_name(product: dict) -> str:
+def _summary_object(product: dict) -> dict:
     descriptions = product.get("descriptions") or []
     if not descriptions or not isinstance(descriptions[0], dict):
-        return ""
+        return {}
     obj = descriptions[0].get("object") or {}
-    if not isinstance(obj, dict):
-        return ""
-    return str(obj.get("shortDescription") or "")
+    return obj if isinstance(obj, dict) else {}
+
+
+def _summary_name(product: dict) -> str:
+    return str(_summary_object(product).get("shortDescription") or "")
+
+
+def _variable_weight(product: dict) -> bool:
+    flag = _summary_object(product).get("isVariableWeight")
+    if isinstance(flag, str):
+        return flag.strip().casefold() == "true"
+    return bool(flag)
 
 
 def _cents(value: object) -> Decimal | None:

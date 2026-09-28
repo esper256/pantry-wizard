@@ -202,6 +202,50 @@ def test_latest_paid_on_uses_a_receipt_imported_in_this_run():
     assert latest_paid_on(rows, [receipt], {"new"})["42"] == "2020-01-01"
 
 
+def test_a_failed_batch_does_not_advance_those_item_numbers(tmp_path):
+    class _Partial(_Source):
+        def lookup_prices(self, skus, warehouse):
+            del warehouse
+            self.asked.extend(skus)
+            return PriceLookupResult(
+                ok=True,
+                quotes=[
+                    PriceQuote(
+                        item_number="1",
+                        current_price=Decimal("1.00"),
+                        regular_price=Decimal("1.00"),
+                        price_scope="warehouse",
+                    )
+                ],
+                checked=["1"],
+            )
+
+    snapshot = {
+        "household_timezone": "America/Los_Angeles",
+        "preferred_costco_warehouse": "121 Foster City",
+        "items": [],
+        "retail_memory": [_row("1"), _row("2")],
+        "known_source_refs": [],
+    }
+    store = StateStore(tmp_path / "state.db")
+    source = _Partial()
+    try:
+        import_windows(
+            snapshot,
+            source,
+            store,
+            windows=[(date(2026, 9, 1), date(2026, 9, 28))],
+            now=NOW,
+            owner="shopping-bot",
+        )
+        checks = store.price_checks()
+    finally:
+        store.close()
+    assert source.asked == ["1", "2"]
+    assert "1" in checks
+    assert "2" not in checks
+
+
 def test_a_new_receipt_line_is_due_even_when_its_check_is_in_the_future():
     due = select_due(
         ["42"],

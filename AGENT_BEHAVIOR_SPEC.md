@@ -1,7 +1,7 @@
 # Agent Behavior Specification
 
 **Status:** Baseline specification  
-**Version:** 0.7
+**Version:** 0.8
 
 ## Document Purpose
 
@@ -128,7 +128,7 @@ The acknowledgement SHOULD be deliberately distinctive and SHOULD include the ru
 
 Example:
 
-> Shopping data steward active — runtime instructions v0.7 loaded.
+> Shopping data steward active — runtime instructions v0.8 loaded.
 
 The agent MUST NOT emit this acknowledgement unless the applicable runtime instructions were actually available to it.
 
@@ -222,7 +222,7 @@ When an agent initially loads the runtime instructions, or loads a different run
 
 Example:
 
-> Shopping data steward active — runtime instructions v0.7 loaded.
+> Shopping data steward active — runtime instructions v0.8 loaded.
 
 Routine verification that an already-active version remains current SHOULD NOT repeatedly generate activation messages.
 
@@ -344,14 +344,14 @@ At minimum it SHOULD support:
 ```text
 key                         value
 ------------------------------------------------------------
-protocol_version            0.7
+protocol_version            0.8
 runtime_instructions_url    <authoritative runtime document>
 ```
 
 It MAY additionally contain:
 
 ```text
-behavior_spec_version       0.7
+behavior_spec_version       0.8
 schema_version              0.2
 schema_url                  <authoritative schema document>
 ```
@@ -1452,7 +1452,7 @@ A trip briefing SHOULD consider:
 - recent purchases, including `RetailMemory.last_paid_at`;
 - likely near-term consumption.
 
-For a named store, read `RetailMemory` rows for that store together with `Config` and `Items`. Do not scan `Events` just to discover the current price. An active `reduction_kind` is a stock-up candidate only when household need, storage, and explicit don't-buy still allow it (`DEAL-01` through `DEAL-05`). `price_scope=online` is the online or member price, not a claim about the warehouse shelf tag.
+For a named store, read `RetailMemory` rows for that store together with `Config` and `Items`. Do not scan `Events` just to discover the current price. `reduction_kind` containing `instant_savings` is a stock-up candidate only when household need, storage, and explicit don't-buy still allow it (`DEAL-01` through `DEAL-05`). `below_baseline` alone is not a sale and is not a stock-up candidate. A price below `last_paid_unit_price` is not a sale. `price_scope=online` is the online or member price, not a claim about the warehouse shelf tag.
 
 ---
 
@@ -1946,10 +1946,10 @@ Relevant rules:
 Shared configuration:
 
 ```text
-protocol_version = 0.7
+protocol_version = 0.8
 ```
 
-Agent can reliably establish that runtime instructions v0.7 are currently active.
+Agent can reliably establish that runtime instructions v0.8 are currently active.
 
 Human:
 
@@ -1958,7 +1958,7 @@ Human:
 Interpretation:
 
 - no redundant full protocol reload is required;
-- process the observation under v0.7;
+- process the observation under v0.8;
 - do not repeat the activation acknowledgement merely because configuration was checked.
 
 Relevant rules:
@@ -1978,15 +1978,15 @@ runtime instructions v0.6
 Shared configuration now says:
 
 ```text
-protocol_version = 0.7
-runtime_instructions_url = <authoritative v0.7 document>
+protocol_version = 0.8
+runtime_instructions_url = <authoritative v0.8 document>
 ```
 
 Interpretation:
 
-1. retrieve runtime instructions v0.7;
+1. retrieve runtime instructions v0.8;
 2. make them available in active context;
-3. emit the v0.7 activation acknowledgement;
+3. emit the v0.8 activation acknowledgement;
 4. only then perform persistent household mutations.
 
 Relevant rules:
@@ -1997,18 +1997,18 @@ Relevant rules:
 
 ## EXAMPLE-10 — Loaded instructions are newer than the sheet
 
-The agent has loaded runtime instructions v0.7. The behavior spec it loaded is also v0.7.
+The agent has loaded runtime instructions v0.8. The behavior spec it loaded is also v0.8.
 
 Shared configuration still says:
 
 ```text
-protocol_version = 0.6
-behavior_spec_version = 0.6
+protocol_version = 0.7
+behavior_spec_version = 0.7
 ```
 
 Interpretation:
 
-1. set `protocol_version` to `0.7` and `behavior_spec_version` to `0.7`;
+1. set `protocol_version` to `0.8` and `behavior_spec_version` to `0.8`;
 2. do not ask the person;
 3. do not wait for approval;
 4. continue the household work that was already asked for.
