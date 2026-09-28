@@ -1,0 +1,36 @@
+{
+  "transactionBarcode": "21134300501862509051323",
+  "warehouseNumber": "121",
+  "warehouseName": "Foster City",
+  "transactionDate": "2026-09-01",
+  "membershipNumber": "SECRET-MEMBER-42",
+  "instantSavings": 4.0,
+  "tenderArray": [
+    {
+      "displayAccountNumber": "XXXX1234",
+      "approvalNumber": "APPROVAL999",
+      "amountTender": 9.99
+    }
+  ],
+  "itemArray": [
+    {
+      "itemNumber": "1553261",
+      "itemDescription01": "GUAC BOWL",
+      "amount": 13.99,
+      "unit": 1,
+      "itemUnitPriceAmount": 13.99
+    },
+    {
+      "itemNumber": "363064",
+      "itemDescription01": "/1553261",
+      "amount": -4.0,
+      "unit": -1
+    },
+    {
+      "itemNumber": "999",
+      "itemDescription01": "CRV BOTTLE DEPOSIT",
+      "amount": 0.1,
+      "unit": 1
+    }
+  ]
+}
