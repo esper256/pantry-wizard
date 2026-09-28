@@ -10,13 +10,14 @@ from costco_sync.cadence import (
     STEADY_PRICE_SKUS,
     PriceCheck,
     advance_checks,
+    below_baseline_skus,
     latest_paid_on,
     select_due,
 )
 from costco_sync.live import CostcoSource
 from costco_sync.models import NormalizedLine, PriceLookupResult, PriceQuote, Receipt, RetailRow
 from costco_sync.run import import_windows
-from costco_sync.store import StateStore
+from costco_sync.store import BELOW_BASELINE_RECONCILED, StateStore
 
 NOW = datetime(2026, 9, 28, 17, 0, tzinfo=timezone.utc)
 TODAY = date(2026, 9, 28)
@@ -200,6 +201,141 @@ def test_latest_paid_on_uses_a_receipt_imported_in_this_run():
     )
     assert latest_paid_on(rows, [receipt], set())["42"] == "2026-09-28"
     assert latest_paid_on(rows, [receipt], {"new"})["42"] == "2020-01-01"
+
+
+def test_stale_below_baseline_rows_are_requoted_before_unchecked_history():
+    rows = {
+        "1": _memory("1", last_paid_at="2026-09-01"),
+        "33724": _memory("33724", reduction_kind="below_baseline"),
+        "promo": _memory("promo", reduction_kind="instant_savings"),
+        "both": _memory("both", reduction_kind="instant_savings,below_baseline"),
+    }
+    assert below_baseline_skus(rows) == {"33724"}
+    checks = {
+        "33724": PriceCheck(NOW + timedelta(days=7), 0),
+        "promo": PriceCheck(NOW - timedelta(days=1), 0),
+    }
+    held = select_due(
+        ["1", "33724", "promo"],
+        rows=rows,
+        fresh=set(),
+        checks=checks,
+        now=NOW,
+        today=TODAY,
+    )
+    assert "33724" not in held
+    due = select_due(
+        ["1", "33724", "promo"],
+        rows=rows,
+        fresh=set(),
+        checks=checks,
+        now=NOW,
+        today=TODAY,
+        reconcile={"33724"},
+    )
+    assert due == ["promo", "33724", "1"]
+
+
+def test_partial_price_lookup_names_the_miss_and_retries_the_flag(tmp_path):
+    class _Partial(_Source):
+        def lookup_prices(self, skus, warehouse):
+            del warehouse
+            self.asked.append(list(skus))
+            return PriceLookupResult(
+                ok=True,
+                quotes=[
+                    PriceQuote(
+                        item_number="1",
+                        current_price=Decimal("1.00"),
+                        regular_price=Decimal("1.00"),
+                        price_scope="warehouse",
+                    )
+                ],
+                checked=["1"],
+                note="HTTP 503",
+            )
+
+    snapshot = {
+        "household_timezone": "America/Los_Angeles",
+        "preferred_costco_warehouse": "121 Foster City",
+        "items": [],
+        "retail_memory": [_row("1"), _row("33724", reduction_kind="below_baseline")],
+        "known_source_refs": [],
+    }
+    store = StateStore(tmp_path / "state.db")
+    store.save_price_checks({"33724": PriceCheck(NOW + timedelta(days=7), 0)})
+    source = _Partial()
+    try:
+        result = import_windows(
+            snapshot,
+            source,
+            store,
+            windows=[(date(2026, 9, 1), date(2026, 9, 28))],
+            now=NOW,
+            owner="shopping-bot",
+        )
+        text = result["mutations"]["summary"]["text"]
+        assert result["mutations"]["price_lookup"] == "ok"
+        assert "Price lookup missed 1 item (HTTP 503); they stay due." in text
+        assert text == result["mutations"]["integration_upsert"]["last_summary"]
+        assert "Price lookup failed" not in text
+        assert source.asked == [["33724", "1"]]
+        assert not store.has_flag(BELOW_BASELINE_RECONCILED)
+    finally:
+        store.close()
+
+
+def test_below_baseline_reconcile_runs_once(tmp_path):
+    class _All(_Source):
+        def lookup_prices(self, skus, warehouse):
+            del warehouse
+            self.asked.append(list(skus))
+            return PriceLookupResult(
+                ok=True,
+                quotes=[
+                    PriceQuote(
+                        item_number=sku,
+                        current_price=Decimal("1.00"),
+                        regular_price=Decimal("1.00"),
+                        price_scope="warehouse",
+                    )
+                    for sku in skus
+                ],
+                checked=list(skus),
+            )
+
+    snapshot = {
+        "household_timezone": "America/Los_Angeles",
+        "preferred_costco_warehouse": "121 Foster City",
+        "items": [],
+        "retail_memory": [_row("33724", reduction_kind="below_baseline")],
+        "known_source_refs": [],
+    }
+    store = StateStore(tmp_path / "state.db")
+    store.save_price_checks({"33724": PriceCheck(NOW + timedelta(days=7), 0)})
+    source = _All()
+    try:
+        import_windows(
+            snapshot,
+            source,
+            store,
+            windows=[(date(2026, 9, 1), date(2026, 9, 28))],
+            now=NOW,
+            owner="shopping-bot",
+        )
+        assert source.asked == [["33724"]]
+        assert store.has_flag(BELOW_BASELINE_RECONCILED)
+        import_windows(
+            snapshot,
+            source,
+            store,
+            windows=[(date(2026, 9, 1), date(2026, 9, 28))],
+            now=NOW,
+            owner="shopping-bot",
+        )
+        assert source.asked == [["33724"]]
+    finally:
+        store.close()
 
 
 def test_a_failed_batch_does_not_advance_those_item_numbers(tmp_path):
@@ -392,12 +528,12 @@ def test_one_run_prices_one_batch_and_leaves_a_miss_on_the_sheet(tmp_path):
 
     assert source.asked[0] == "993449"
     assert source.asked[1] == "sale"
+    assert source.asked[2] == "base"
     assert "later" not in source.asked
-    assert "base" not in source.asked
     assert "1059" in source.asked
     assert "2" in source.asked
     written = {row["retailer_sku"] for row in result["mutations"]["retail_memory_upserts"]}
-    assert written == {"sale"}
+    assert written == {"sale", "base"}
     assert checks["sale"].miss_count == 0
     assert checks["sale"].next_check_at == NOW + timedelta(days=1)
     assert checks["1001"].next_check_at == NOW + timedelta(days=7)
@@ -407,4 +543,4 @@ def test_one_run_prices_one_batch_and_leaves_a_miss_on_the_sheet(tmp_path):
     assert checks["1000"].next_check_at == NOW + timedelta(days=2)
     assert checks["later"].miss_count == 3
     assert checks["later"].next_check_at == later
-    assert checks["base"].next_check_at == NOW - timedelta(days=1)
+    assert checks["base"].next_check_at == NOW + timedelta(days=7)

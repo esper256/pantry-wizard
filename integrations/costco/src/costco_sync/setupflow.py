@@ -99,6 +99,8 @@ def build_summary(
     location: str,
     *,
     price_lookup_failed: bool = False,
+    price_lookup_missed: int = 0,
+    price_lookup_status: str = "",
 ) -> dict:
     imported_dates: list[str] = []
     imported = 0
@@ -135,6 +137,8 @@ def build_summary(
         "newest": newest,
         "distinct_items": len(items),
         "price_lookup_failed": price_lookup_failed,
+        "price_lookup_missed": price_lookup_missed,
+        "price_lookup_status": price_lookup_status,
     }
     summary["text"] = summary_text(summary)
     return summary
@@ -163,9 +167,15 @@ def summary_text(summary: dict) -> str:
 
 
 def _with_price_note(text: str, summary: dict) -> str:
-    if not summary.get("price_lookup_failed"):
+    if summary.get("price_lookup_failed"):
+        return f"{text} {PRICE_LOOKUP_FAILURE}"
+    missed = int(summary.get("price_lookup_missed") or 0)
+    if not missed:
         return text
-    return f"{text} {PRICE_LOOKUP_FAILURE}"
+    noun = "item" if missed == 1 else "items"
+    status = str(summary.get("price_lookup_status") or "")
+    detail = f" ({status})" if status else ""
+    return f"{text} Price lookup missed {missed} {noun}{detail}; they stay due."
 
 
 def integration_upsert(
