@@ -552,3 +552,22 @@ def test_cli_auth_failure_returns_2(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     )
     assert code == 2
     assert not out.exists()
+
+
+def test_auth_without_a_token_points_at_chrome_devtools(monkeypatch: pytest.MonkeyPatch, capsys):
+    class Status:
+        account = "personal"
+
+        def status(self):
+            return {"account": "personal", "has_refresh_token": False}
+
+    monkeypatch.setattr("costco_sync.live.CostcoSource", lambda account: Status())
+    from costco_sync.cli import main
+
+    code = main(["auth", "--account", "personal"])
+    printed = capsys.readouterr().out
+    assert code == 0
+    assert "Developer Tools" in printed
+    assert "signin.costco.com" in printed
+    assert "refreshtoken" in printed
+    assert "costco-auth-browser" not in printed

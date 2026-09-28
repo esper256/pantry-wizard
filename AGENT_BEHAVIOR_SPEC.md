@@ -1,7 +1,7 @@
 # Agent Behavior Specification
 
 **Status:** Baseline specification  
-**Version:** 0.4
+**Version:** 0.5
 
 ## Document Purpose
 
@@ -128,7 +128,7 @@ The acknowledgement SHOULD be deliberately distinctive and SHOULD include the ru
 
 Example:
 
-> Shopping data steward active — runtime instructions v0.4 loaded.
+> Shopping data steward active — runtime instructions v0.5 loaded.
 
 The agent MUST NOT emit this acknowledgement unless the applicable runtime instructions were actually available to it.
 
@@ -220,7 +220,7 @@ When an agent initially loads the runtime instructions, or loads a different run
 
 Example:
 
-> Shopping data steward active — runtime instructions v0.4 loaded.
+> Shopping data steward active — runtime instructions v0.5 loaded.
 
 Routine verification that an already-active version remains current SHOULD NOT repeatedly generate activation messages.
 
@@ -342,14 +342,14 @@ At minimum it SHOULD support:
 ```text
 key                         value
 ------------------------------------------------------------
-protocol_version            0.4
+protocol_version            0.5
 runtime_instructions_url    <authoritative runtime document>
 ```
 
 It MAY additionally contain:
 
 ```text
-behavior_spec_version       0.4
+behavior_spec_version       0.5
 schema_version              0.2
 schema_url                  <authoritative schema document>
 ```
@@ -1378,6 +1378,10 @@ Afterward, tell the household the tool's summary. Those counts and dates are evi
 
 A store login is for reading receipts and prices. The agent MUST NOT use those credentials, a refresh token, or the signed-in browser to buy, check out, or place an order. Purchasing remains solely under human control.
 
+The agent MUST NOT scrape an OAuth refresh token from a browser. The person copies it from their own browser’s developer tools, as that store’s `SETUP.md` describes.
+
+When the retailer API returns an error, the importer crashes, or the response cannot be parsed, the agent MUST file an issue on this GitHub project after replacing tokens, passwords, cookies, emails, phone numbers, membership numbers, payment numbers, names, and street addresses with `[redacted]`. The steps are in `integrations/README.md`. A lease conflict, a membership mismatch, and an unconfirmed location are not issues.
+
 ---
 
 # 17. Learning Household Patterns
@@ -1936,10 +1940,10 @@ Relevant rules:
 Shared configuration:
 
 ```text
-protocol_version = 0.4
+protocol_version = 0.5
 ```
 
-Agent can reliably establish that runtime instructions v0.4 are currently active.
+Agent can reliably establish that runtime instructions v0.5 are currently active.
 
 Human:
 
@@ -1948,7 +1952,7 @@ Human:
 Interpretation:
 
 - no redundant full protocol reload is required;
-- process the observation under v0.4;
+- process the observation under v0.5;
 - do not repeat the activation acknowledgement merely because configuration was checked.
 
 Relevant rules:
@@ -2070,7 +2074,7 @@ They are restated here for convenience but remain governed by their full definit
 - `DEAL-03` — Stock-up decisions should account for future use.
 - `DEAL-05` — Do not fabricate economic precision.
 - `EXT-04` — Receipt import is purchase and price evidence, not a stock count. Named-store briefings read `RetailMemory`.
-- `INTEGRATION-01` — Install a store by its setup document. One scheduled importer per store membership. The login cannot place an order.
+- `INTEGRATION-01` — Install a store by its setup document. One scheduled importer per store membership. The login cannot place an order. The person copies the refresh token from their own browser. API failures are filed as redacted GitHub issues.
 
 ### Multi-agent integrity
 
