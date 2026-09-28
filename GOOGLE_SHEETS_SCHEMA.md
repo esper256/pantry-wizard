@@ -2,7 +2,7 @@
 
 **Status:** Draft  
 **Schema Version:** 0.2  
-**Related protocol:** `AGENT_RUNTIME_INSTRUCTIONS.md` v0.5
+**Related protocol:** `AGENT_RUNTIME_INSTRUCTIONS.md` v0.6
 
 ## Purpose
 
@@ -138,9 +138,9 @@ Official references:
 |---|---|---|
 | `schema_version` | `0.2` | Shopping Database schema version |
 | `schema_url` | *(set during setup)* | Authoritative `GOOGLE_SHEETS_SCHEMA.md` |
-| `protocol_version` | `0.5` | Required agent runtime-instruction version |
+| `protocol_version` | `0.6` | Required agent runtime-instruction version |
 | `runtime_instructions_url` | *(set during setup)* | Authoritative `AGENT_RUNTIME_INSTRUCTIONS.md` |
-| `behavior_spec_version` | `0.5` | Informational behavior-spec version |
+| `behavior_spec_version` | `0.6` | Informational behavior-spec version |
 | `behavior_spec_url` | *(set during setup)* | Full behavior specification |
 | `household_timezone` | *(set during setup)* | IANA timezone such as `America/Los_Angeles` |
 | `currency` | *(set during setup)* | Currency such as `USD` |
@@ -666,7 +666,18 @@ Timestamp columns SHOULD be formatted as Plain text in a blank workbook so Sheet
 
 # 14. Explicit Non-Goals for v0.1
 
-Schema 0.2 is one bump from schema 0.1. Nothing was deployed at 0.1, so there is no workbook to migrate. This version adds `RetailMemory` and `Integrations` and no other sheet.
+Schema 0.2 adds `RetailMemory` and `Integrations` and no other sheet. A workbook that is still on schema 0.1 is upgraded in place. There is no second copy of the workbook.
+
+## Upgrading a schema 0.1 workbook
+
+A Bot MAY do this when the person asks to install a store integration, or when `schema_version` is older than the schema loaded from `schema_url`. It MUST NOT rewrite `Items` or `Events`. It MUST NOT delete sheets.
+
+1. Add a `RetailMemory` sheet and an `Integrations` sheet if they are missing. Row 1 is the header row in the order in section 13. Both sheets are otherwise empty.
+2. Format `last_paid_at`, `observed_at`, `reduction_ends_at`, `lease_until`, and `last_sync_at` as Plain text.
+3. Set `Config` `schema_version` to `0.2`, `protocol_version` to `0.6`, and `behavior_spec_version` to `0.6`. If `schema_url`, `runtime_instructions_url`, `behavior_spec_url`, or `timestamp_format` is missing, add the row from section 4.
+4. Leave every existing `Config`, `Items`, and `Events` value unchanged.
+
+A later schema bump SHOULD ship the same kind of note: which sheets and columns to add, which `Config` values to set, and a statement that existing evidence rows stay. The Bot that the person asked to install or upgrade MAY apply that note. It MUST refuse importer writes that need a sheet the workbook does not have yet, tell the person, and offer this upgrade.
 
 `RetailMemory` holds the current price of a known SKU. Updating a price replaces cells. It does not add a promotion-history table, a row per day, or an `Events` row.
 

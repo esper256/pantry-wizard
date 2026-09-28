@@ -1,7 +1,7 @@
 # Agent Behavior Specification
 
 **Status:** Baseline specification  
-**Version:** 0.5
+**Version:** 0.6
 
 ## Document Purpose
 
@@ -128,7 +128,7 @@ The acknowledgement SHOULD be deliberately distinctive and SHOULD include the ru
 
 Example:
 
-> Shopping data steward active — runtime instructions v0.5 loaded.
+> Shopping data steward active — runtime instructions v0.6 loaded.
 
 The agent MUST NOT emit this acknowledgement unless the applicable runtime instructions were actually available to it.
 
@@ -220,7 +220,7 @@ When an agent initially loads the runtime instructions, or loads a different run
 
 Example:
 
-> Shopping data steward active — runtime instructions v0.5 loaded.
+> Shopping data steward active — runtime instructions v0.6 loaded.
 
 Routine verification that an already-active version remains current SHOULD NOT repeatedly generate activation messages.
 
@@ -342,14 +342,14 @@ At minimum it SHOULD support:
 ```text
 key                         value
 ------------------------------------------------------------
-protocol_version            0.5
+protocol_version            0.6
 runtime_instructions_url    <authoritative runtime document>
 ```
 
 It MAY additionally contain:
 
 ```text
-behavior_spec_version       0.5
+behavior_spec_version       0.6
 schema_version              0.2
 schema_url                  <authoritative schema document>
 ```
@@ -1378,7 +1378,11 @@ Afterward, tell the household the tool's summary. Those counts and dates are evi
 
 A store login is for reading receipts and prices. The agent MUST NOT use those credentials, a refresh token, or the signed-in browser to buy, check out, or place an order. Purchasing remains solely under human control.
 
-The agent MUST NOT scrape an OAuth refresh token from a browser. The person copies it from their own browser’s developer tools, as that store’s `SETUP.md` describes.
+The agent MUST NOT scrape an OAuth refresh token from a browser. The person opens the retailer's orders page, then copies the secret from their own browser’s developer tools, as that store’s `SETUP.md` describes. The secret is read from stdin. It is not a command-line argument.
+
+A first import does not guess which household item a SKU is. The person confirms an alias. The home warehouse comes from imported receipts, not from the warehouse selected on the retailer's website.
+
+When `schema_version` is older than the loaded schema, the agent MAY add the missing sheets and `Config` version rows described in the schema. It MUST NOT rewrite `Items` or `Events` to do that.
 
 When the retailer API returns an error, the importer crashes, or the response cannot be parsed, the agent MUST file an issue on this GitHub project after replacing tokens, passwords, cookies, emails, phone numbers, membership numbers, payment numbers, names, and street addresses with `[redacted]`. The steps are in `integrations/README.md`. A lease conflict, a membership mismatch, and an unconfirmed location are not issues.
 
@@ -1940,10 +1944,10 @@ Relevant rules:
 Shared configuration:
 
 ```text
-protocol_version = 0.5
+protocol_version = 0.6
 ```
 
-Agent can reliably establish that runtime instructions v0.5 are currently active.
+Agent can reliably establish that runtime instructions v0.6 are currently active.
 
 Human:
 
@@ -1952,7 +1956,7 @@ Human:
 Interpretation:
 
 - no redundant full protocol reload is required;
-- process the observation under v0.5;
+- process the observation under v0.6;
 - do not repeat the activation acknowledgement merely because configuration was checked.
 
 Relevant rules:
@@ -1966,21 +1970,21 @@ Relevant rules:
 Conversation originally loaded:
 
 ```text
-runtime instructions v0.4
+runtime instructions v0.5
 ```
 
 Shared configuration now says:
 
 ```text
-protocol_version = 0.5
-runtime_instructions_url = <authoritative v0.5 document>
+protocol_version = 0.6
+runtime_instructions_url = <authoritative v0.6 document>
 ```
 
 Interpretation:
 
-1. retrieve runtime instructions v0.5;
+1. retrieve runtime instructions v0.6;
 2. make them available in active context;
-3. emit the v0.5 activation acknowledgement;
+3. emit the v0.6 activation acknowledgement;
 4. only then perform persistent household mutations.
 
 Relevant rules:
