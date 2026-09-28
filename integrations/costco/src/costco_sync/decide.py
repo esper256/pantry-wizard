@@ -199,6 +199,7 @@ def build_mutations(
 
     items = list(snapshot.items)
     rows = {row.retail_key: _copy_row(row) for row in snapshot.retail_memory}
+    original = {key: _copy_row(row) for key, row in rows.items()}
     touched: set[str] = set()
     samples = {key: list(values) for key, values in baseline_samples.items()}
     newly_sampled: set[str] = set()
@@ -265,7 +266,9 @@ def build_mutations(
         ],
         "events": sorted(events, key=lambda event: event["source_ref"]),
         "retail_memory_upserts": [
-            _row_dict(rows[key]) for key in sorted(touched)
+            _row_dict(rows[key])
+            for key in sorted(touched)
+            if _worth_writing(original.get(key), rows[key])
         ],
     }
     return mutations, samples, newly_sampled
@@ -518,6 +521,17 @@ def _blank_row(key: str, sku: str, location: str, item_id: str) -> RetailRow:
         location=location,
         retailer_sku=sku,
         purchase_count="0",
+    )
+
+
+def _worth_writing(before: RetailRow | None, after: RetailRow) -> bool:
+    """A new row is written. A later check that only refreshes observed_at is not."""
+    if before is None:
+        return True
+    return any(
+        getattr(before, field) != getattr(after, field)
+        for field in RETAIL_COLUMNS
+        if field != "observed_at"
     )
 
 

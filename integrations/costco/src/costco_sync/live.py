@@ -9,6 +9,8 @@ price that does not follow the warehouse or an instant-savings promotion.
 
 from __future__ import annotations
 
+import time
+
 from costco_sync.models import AuthError, PriceLookupResult, RangeRejected, SearchHit
 from costco_sync.normalize import parse_summary_prices
 
@@ -17,6 +19,7 @@ from costco_sync.normalize import parse_summary_prices
 _SUMMARY_URL = "https://gdx-api.costco.com/catalog/product/product-api/v2/products/summary"
 _SUMMARY_CLIENT_IDENTIFIER = "b1be4e95-8696-4d93-8f50-5b5632922209"
 _SUMMARY_BATCH = 20
+PRICE_BATCH_PAUSE_SECONDS = 20
 
 
 class CostcoSource:
@@ -105,7 +108,14 @@ class CostcoSource:
                 raise RangeRejected("Costco rejected this receipt date range") from exc
             raise
 
-    def _price_summaries(self, item_numbers: list[str], warehouse_number: str) -> list[dict]:
+    def _price_summaries(
+        self,
+        item_numbers: list[str],
+        warehouse_number: str,
+        *,
+        pause_seconds: float = PRICE_BATCH_PAUSE_SECONDS,
+        sleep=time.sleep,
+    ) -> list[dict]:
         from costco_mcp_server.auth import WCS_CLIENT_ID
         from curl_cffi import requests as curl_requests
 
@@ -115,7 +125,10 @@ class CostcoSource:
             "chrome131",
         )
         found: list[dict] = []
-        for offset in range(0, len(item_numbers), _SUMMARY_BATCH):
+        offsets = range(0, len(item_numbers), _SUMMARY_BATCH)
+        for index, offset in enumerate(offsets):
+            if index and pause_seconds:
+                sleep(pause_seconds)
             batch = item_numbers[offset : offset + _SUMMARY_BATCH]
             response = curl_requests.get(
                 _SUMMARY_URL,
