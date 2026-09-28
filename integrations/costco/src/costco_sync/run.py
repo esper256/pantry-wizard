@@ -8,7 +8,13 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from costco_sync.cadence import advance_checks, fresh_purchase_skus, rows_by_sku, select_due
+from costco_sync.cadence import (
+    advance_checks,
+    fresh_purchase_skus,
+    latest_paid_on,
+    rows_by_sku,
+    select_due,
+)
 from costco_sync.decide import build_mutations, snapshot_from_json, warehouse_number
 from costco_sync.models import PriceLookupResult, RangeRejected, Receipt
 from costco_sync.normalize import barcodes_from_list, membership_number, parse_receipt_detail
@@ -147,17 +153,24 @@ def import_windows(
         names = source.lookup_product_names(skus, home) or {}
 
     held: dict = {}
+    retail_rows = rows_by_sku(snapshot.retail_memory, home)
+    buy_ids = {
+        item.item_id
+        for item in snapshot.items
+        if item.purchase_intent.strip().casefold() == "buy"
+    }
 
     def price_lookup(item_numbers: list[str], warehouse: str) -> PriceLookupResult:
         if not item_numbers or not warehouse:
             return PriceLookupResult(ok=True, quotes=[])
         due = select_due(
             item_numbers,
-            rows=rows_by_sku(snapshot.retail_memory, home),
+            rows=retail_rows,
             fresh=fresh_purchase_skus(kept, snapshot.known_source_refs),
             checks=store.price_checks(),
             now=now,
             today=_local_date(now, snapshot.household_timezone),
+            buy_ids=buy_ids,
         )
         if not due:
             return PriceLookupResult(ok=True, quotes=[])
@@ -191,6 +204,7 @@ def import_windows(
                 store.price_checks(),
                 now,
                 _local_date(now, snapshot.household_timezone),
+                paid_on=latest_paid_on(retail_rows, kept, snapshot.known_source_refs),
             )
         )
     summary = build_summary(
