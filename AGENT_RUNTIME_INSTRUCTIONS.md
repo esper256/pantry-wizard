@@ -35,7 +35,7 @@ Events         append-oriented evidence/history
 
 `RetailMemory` is the commercial cache for a named-store briefing: last price paid, typical non-sale price, and any current reduction for SKUs this household already buys or has linked to an item. It is not inventory. Ordinary inventory questions ignore it.
 
-`Integrations` records a connected store: confirmed location, who runs the schedule, and how far history has been imported. It is not inventory. `preferred_costco_warehouse` is a legacy note. New setup uses `Integrations.location` so the next store does not need its own config key.
+`Integrations` records a connected store: confirmed location, who runs the schedule, and how far history has been imported. It is not inventory. One row per store, updated in place. Do not add a `Config` key per store, a sheet per store, or a row per sync. The confirmed location is `Integrations.location`.
 
 `Config` identifies the protocol and other system metadata.
 
@@ -343,7 +343,7 @@ Do not recommend excess merely because something is cheap.
 
 Expired deal data SHOULD stop affecting recommendations.
 
-Current Costco prices and recent prices paid live in `RetailMemory`, not in a scan of `Events`. A receipt import is evidence that a membership bought an item at a price, or that a known SKU's price was observed later. It is not a stock count. Do not treat imported purchase history as the cartons still in the house, and do not let a sale rewrite `inventory_state`.
+Current prices and recent prices paid live in `RetailMemory`, not in a scan of `Events`. Update that row when the price changes. Do not append an event for the check, and do not add an `Items` row because a SKU was on a receipt. A receipt is evidence of a purchase, not a stock count. Do not treat imported purchase history as the cartons still in the house, and do not let a sale rewrite `inventory_state`.
 
 Do not fabricate precise economic optimization or ideal quantities without supporting data.
 

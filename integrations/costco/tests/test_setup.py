@@ -143,7 +143,7 @@ def test_other_warehouses_are_excluded_and_the_summary_counts_them(tmp_path: Pat
     assert summary["oldest"] == "2026-09-01"
     assert summary["newest"] == "2026-09-01"
     assert summary["distinct_items"] == 1
-    assert summary["new_household_items"] == 1
+    assert mutations["new_items"] == []
     assert summary["text"] in encoded
     assert "Imported 1 Costco receipts" in summary["text"]
     upsert = mutations["integration_upsert"]

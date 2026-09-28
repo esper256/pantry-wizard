@@ -131,7 +131,6 @@ def build_summary(
         "oldest": oldest,
         "newest": newest,
         "distinct_items": len(items),
-        "new_household_items": len(mutations.get("new_items") or []),
     }
     summary["text"] = summary_text(summary)
     return summary
@@ -151,8 +150,7 @@ def summary_text(summary: dict) -> str:
     return (
         f"Imported {summary['receipts_imported']} Costco receipts from {summary['warehouse']}, "
         f"{summary['oldest']} through {summary['newest']}, "
-        f"covering {summary['distinct_items']} items "
-        f"({summary['new_household_items']} new household items). "
+        f"covering {summary['distinct_items']} items. "
         f"{summary['receipts_already_present']} receipts were already in the sheet."
         f"{skip_sentence}"
     )

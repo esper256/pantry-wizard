@@ -33,7 +33,6 @@ from costco_sync.money import (
 )
 
 _EVENT_NAMESPACE = uuid.UUID("8f1c0c2e-7b1a-5a1e-9c3d-0a6e5b7c9d11")
-_ITEM_NAMESPACE = uuid.UUID("c2a91d44-6e08-5b7a-8f31-11d0a9c4e220")
 _SEARCH_LIMIT = 20
 _LOW_STATES = {"out", "very_low", "probably_low"}
 
@@ -204,7 +203,6 @@ def build_mutations(
     samples = {key: list(values) for key, values in baseline_samples.items()}
     newly_sampled: set[str] = set()
     alias_updates: dict[str, str] = {}
-    new_items: dict[str, dict] = {}
     events: list[dict] = []
 
     search_links = _search_links(snapshot, search, home)
@@ -223,20 +221,10 @@ def build_mutations(
                 continue
             names_for_line = [names.get(line.item_number, ""), line.description, quotes.get(line.item_number, PriceQuote(line.item_number)).product_name]
             item = _match_item(items, line.item_number, names_for_line)
-            if item is None and line.kind == "purchase":
-                item = _create_item(
-                    items,
-                    new_items,
-                    line,
-                    names.get(line.item_number) or quotes.get(line.item_number, PriceQuote(line.item_number)).product_name,
-                    generated_at,
-                )
             if item is not None:
                 _remember_alias(item, line.item_number, alias_updates)
             event = _line_event(line, receipt, item.item_id if item else "", generated_at)
             events.append(event)
-            if item is not None and line.kind == "purchase" and item.item_id in new_items:
-                new_items[item.item_id]["last_event_id"] = event["event_id"]
 
             if line.kind != "purchase":
                 continue
@@ -246,7 +234,6 @@ def build_mutations(
             _fold_purchase(row, line, receipt, samples, already_sampled, newly_sampled, names, quotes)
 
     if lookup.ok and home:
-        observed_day = generated_at[:10]
         for sku in sorted(interest):
             quote = quotes.get(sku)
             if quote is None or quote.current_price is None:
@@ -265,21 +252,10 @@ def build_mutations(
             elif quote.product_name and len(quote.product_name) > len(row.retailer_name):
                 row.retailer_name = quote.product_name
             _apply_quote(row, quote, samples.get(key, []), generated_at)
-            if row.reduction_kind:
-                deal_ref = _deal_source_ref(home, sku, row.current_price, row.reduction_kind)
-                if deal_ref not in snapshot.known_source_refs:
-                    events.append(
-                        _deal_event(row, item.item_id if item else "", deal_ref, observed_day, generated_at)
-                    )
-
-    for item_id, aliases in list(alias_updates.items()):
-        if item_id in new_items:
-            new_items[item_id]["aliases"] = aliases
-            alias_updates.pop(item_id)
 
     mutations = {
         "generated_at": generated_at,
-        "new_items": [new_items[key] for key in sorted(new_items)],
+        "new_items": [],
         "item_alias_updates": [
             {"item_id": item_id, "aliases": aliases}
             for item_id, aliases in sorted(alias_updates.items())
@@ -453,28 +429,6 @@ def _line_event(line: NormalizedLine, receipt: Receipt, item_id: str, generated_
     )
 
 
-def _deal_event(row: RetailRow, item_id: str, source_ref: str, occurred_on: str, generated_at: str) -> dict:
-    name = row.retailer_name or row.receipt_name or row.retailer_sku
-    regular = f", regular {row.regular_price}" if row.regular_price else ""
-    ends = f", through {row.reduction_ends_at}" if row.reduction_ends_at else ""
-    scope = row.price_scope or "unspecified"
-    interpretation = (
-        f"Costco {row.location} {name} current {row.current_price}{regular}{ends}. "
-        f"Price scope: {scope}. Reduction: {row.reduction_kind}."
-    )
-    return _event(
-        event_type="deal_observed",
-        item_id=item_id,
-        quantity="",
-        price_paid=row.current_price,
-        occurred_at=occurred_on,
-        recorded_at=generated_at,
-        interpretation=interpretation,
-        source_type="costco_price_check",
-        source_ref=source_ref,
-    )
-
-
 def _event(**kwargs) -> dict:
     event = {column: "" for column in EVENT_COLUMNS}
     event.update(kwargs)
@@ -483,43 +437,6 @@ def _event(**kwargs) -> dict:
     event["written_by"] = "costco-sync"
     event["store"] = "Costco"
     return event
-
-
-def _create_item(items, new_items, line: NormalizedLine, product_name: str, generated_at: str) -> HouseholdItem:
-    item_id = str(uuid.uuid5(_ITEM_NAMESPACE, f"costco-item:{line.item_number}"))
-    existing = _item_by_id(items, item_id)
-    if existing is not None:
-        return existing
-    canonical = product_name or line.description or f"Costco {line.item_number}"
-    item = HouseholdItem(
-        item_id=item_id,
-        canonical_name=canonical,
-        aliases=f"costco:{line.item_number}",
-        inventory_state="unknown",
-        purchase_intent="",
-        preferred_stores="",
-    )
-    items.append(item)
-    new_items[item_id] = {
-        "item_id": item_id,
-        "canonical_name": canonical,
-        "aliases": item.aliases,
-        "inventory_state": "unknown",
-        "quantity_estimate": "",
-        "quantity_unit": "",
-        "inventory_confidence": "low",
-        "inventory_as_of": "",
-        "purchase_intent": "",
-        "requested_quantity": "",
-        "intent_expires_at": "",
-        "preferred_stores": "",
-        "item_policy": "",
-        "state_summary": "Seen on Costco warehouse receipts; current stock unknown.",
-        "last_event_id": "",
-        "updated_at": generated_at,
-        "updated_by": "costco-sync",
-    }
-    return item
 
 
 def _remember_alias(item: HouseholdItem, item_number: str, updates: dict[str, str]) -> None:
@@ -599,10 +516,6 @@ def _row_dict(row: RetailRow) -> dict:
 
 def _retail_key(warehouse: str, sku: str) -> str:
     return f"costco:{warehouse}:{sku}"
-
-
-def _deal_source_ref(warehouse: str, sku: str, current_price: str, kind: str) -> str:
-    return f"costco:deal:{warehouse}:{sku}:{current_price}:{kind}"
 
 
 def _location(receipt: Receipt) -> str:

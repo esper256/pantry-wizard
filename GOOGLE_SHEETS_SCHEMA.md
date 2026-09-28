@@ -1,7 +1,7 @@
 # Google Sheets Shopping Database Schema
 
 **Status:** Draft  
-**Schema Version:** 0.3  
+**Schema Version:** 0.2  
 **Related protocol:** `AGENT_RUNTIME_INSTRUCTIONS.md` v0.4
 
 ## Purpose
@@ -136,14 +136,13 @@ Official references:
 
 | `key` | Initial `value` | `description` |
 |---|---|---|
-| `schema_version` | `0.3` | Shopping Database schema version |
+| `schema_version` | `0.2` | Shopping Database schema version |
 | `schema_url` | *(set during setup)* | Authoritative `GOOGLE_SHEETS_SCHEMA.md` |
 | `protocol_version` | `0.4` | Required agent runtime-instruction version |
 | `runtime_instructions_url` | *(set during setup)* | Authoritative `AGENT_RUNTIME_INSTRUCTIONS.md` |
 | `behavior_spec_version` | `0.4` | Informational behavior-spec version |
 | `behavior_spec_url` | *(set during setup)* | Full behavior specification |
 | `household_timezone` | *(set during setup)* | IANA timezone such as `America/Los_Angeles` |
-| `preferred_costco_warehouse` | *(optional legacy)* | Older home-warehouse note, such as `121 Foster City`. New setup writes `Integrations.location` instead. Do not add a config key per store. |
 | `currency` | *(set during setup)* | Currency such as `USD` |
 | `timestamp_format` | `ISO-8601 with explicit timezone offset` | Machine-written timestamp convention |
 
@@ -162,6 +161,8 @@ Agents SHOULD load `schema_url` when `schema_version` is unfamiliar.
 Agents MUST NOT casually modify protocol or schema configuration. These values change only as part of explicit system administration or upgrade.
 
 Do not store frequently changing counters such as `next_event_id` in `Config`; shared counters create needless concurrency hazards.
+
+Do not add a `Config` key per store. A confirmed warehouse or store location belongs on `Integrations.location`. `Config` stays the small control plane above.
 
 ---
 
@@ -301,7 +302,9 @@ An agent can usually understand the current interpretation without retrieving th
 
 `RetailMemory` is the hot-path cache of commercial facts for retailer SKUs the household already buys or has explicitly connected to a household item.
 
-There is one row per store, warehouse or location, and retailer SKU. Rows are upserted in place. The sheet is not a promotion ledger and it is not household inventory.
+There is one row per store, warehouse or location, and retailer SKU. Find that row by `retail_key` and update it. A later price, a later receipt, or a repeated import MUST NOT append another row for the same key. The sheet is not a promotion ledger and it is not household inventory.
+
+A row exists only for a SKU purchased at a confirmed location, or already linked to a household item. Do not add a row per catalog deal, per receipt line, or per day the price was checked. Other locations of the same retailer are not extra rows.
 
 A normal inventory question SHOULD ignore this sheet. A named-store briefing SHOULD read the rows for that store. The expected size is the household's own known SKUs, not the retailer's catalog, so reading the sheet is cheap.
 
@@ -331,13 +334,15 @@ A normal inventory question SHOULD ignore this sheet. A named-store briefing SHO
 
 Importers MUST NOT copy payment details, membership numbers, or credentials into this sheet.
 
-Price observations are replaceable. Re-running an import updates the current-price columns in place. A day with the same price does not require a new `Events` row.
+Price observations are replaceable. Re-running an import updates the current-price columns in place. A price observation MUST NOT append an `Events` row. The current reduction is `reduction_kind` together with `current_price` and `regular_price`. When a later observation is not a reduction, clear `reduction_kind` and `reduction_ends_at` in place and keep the latest `current_price`.
 
 # 6B. `Integrations` Sheet
 
-`Integrations` is one row per connected store importer. Costco is the first store. A later store uses the same columns. Do not add a store-specific sheet or a config key per retailer.
+`Integrations` is one row per connected store importer. Costco is the first store. A later store uses the same columns. Do not add a store-specific sheet, a receipt-archive sheet, a sync log, or a `Config` key per retailer.
 
 Ordinary inventory questions ignore this sheet. A store briefing does not need it. Setup and the scheduled importer read the one row for that store.
+
+Find the row by `integration_key` and update it. A daily sync MUST NOT append another row. If no row exists for that key, append one. `last_summary` replaces the previous sentence. It is not a history of syncs. `history_from` and `history_through` are two date cells on that same row, not one row per import chunk. The lease is the `owner` and `lease_until` cells on that same row, not a lease log.
 
 ## Columns
 
@@ -355,15 +360,15 @@ Ordinary inventory questions ignore this sheet. A store briefing does not need i
 | `last_sync_at` | When the last successful import was applied |
 | `last_summary` | The sentence the household was told after that import |
 
-The lease is a household courtesy, not a transaction. Before a long download, the Bot writes its `owner`, reads the row back, and continues only if it still owns the row. A second Bot that sees a future `lease_until` and a different `owner` does not start another schedule and does not import. The same owner, or an expired lease, may continue. A different `membership_fingerprint` means this sheet is already linked to another membership; stop and say so.
-
-`preferred_costco_warehouse` remains readable so an older snapshot still resolves. New setup writes `location` here.
+The lease is a household courtesy, not a transaction. Before a long download, the Bot writes its `owner`, reads the row back, and continues only if it still owns the row. A second Bot that sees a future `lease_until` and a different `owner` does not start another schedule and does not import. The same owner, or an expired lease, may continue. A different `membership_fingerprint` means this sheet is already linked to another membership; stop and say so. The fingerprint is a hash. Do not add a column or a cell for the membership number.
 
 # 7. `Events` Sheet
 
 `Events` is an append-only evidence ledger.
 
-One row represents one atomic semantic event affecting one canonical item.
+One row represents one atomic semantic event. `item_id` links that evidence to a household item when one already exists. Leave `item_id` blank when a receipt line is not yet linked. Do not create an `Items` row solely to fill it in.
+
+A receipt import appends one `purchased` or `refunded` row per receipt line. `source_ref` is the idempotency key: the same value MUST NOT be appended again. A price check is not an event. Record the observed price on `RetailMemory`.
 
 ## Columns
 
@@ -535,7 +540,7 @@ Narrow updates are particularly important. If one agent changes `preferred_store
 
 The append-only `Events` sheet is the recovery layer if derived `Items` state is lost or overwritten.
 
-Schema 0.3 adds one lease on `Integrations` for store importers. It does not lock ordinary household edits. Two Bots must not schedule the same store import while `lease_until` is in the future for a different `owner`.
+Schema 0.2 adds one lease on `Integrations` for store importers. It does not lock ordinary household edits. Two Bots must not schedule the same store import while `lease_until` is in the future for a different `owner`. The lease is two cells on the store's existing row.
 
 A future implementation MAY add stronger concurrency control. Correctness of ordinary household edits still does not require a general locking service.
 
@@ -661,9 +666,13 @@ Timestamp columns SHOULD be formatted as Plain text in a blank workbook so Sheet
 
 # 14. Explicit Non-Goals for v0.1
 
-Schema 0.2 adds `RetailMemory`, a replaceable cache of known-SKU prices. That does not add a permanent promotion-history table. Current prices are updated in place. A `deal_observed` event is appended only when a reduction appears or the observed price materially changes.
+Schema 0.2 is one bump from schema 0.1. Nothing was deployed at 0.1, so there is no workbook to migrate. This version adds `RetailMemory` and `Integrations` and no other sheet.
 
-Schema 0.3 adds `Integrations`, one row per store importer, including a lease so only one Bot schedules that store's import.
+`RetailMemory` holds the current price of a known SKU. Updating a price replaces cells. It does not add a promotion-history table, a row per day, or an `Events` row.
+
+`Integrations` holds one row per connected store, including a lease so only one Bot schedules that store's import. A sync updates that row. It does not add a log.
+
+A receipt import MUST NOT insert an `Items` row because a SKU appeared on a receipt. Years of purchases belong in `Events`, once per line, and in `RetailMemory`, one row per SKU. The hot `Items` sheet stays limited to items the household actually tracks.
 
 The other v0.1 non-goals still apply.
 

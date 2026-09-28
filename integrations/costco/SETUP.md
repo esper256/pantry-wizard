@@ -73,7 +73,7 @@ If those refs or `history_from` / `history_through` already exist, say the saved
 costco-sync history --snapshot household.json --out mutations.json --owner <this-bot>
 ```
 
-The command keeps receipts whose warehouse number matches `Integrations.location` (or the legacy `preferred_costco_warehouse` when the row has no location). It walks backward about a year at a time until a year is empty or Costco rejects the range. On a second setup it requests only the gap.
+The command keeps receipts whose warehouse number matches `Integrations.location`. It walks backward about a year at a time until a year is empty or Costco rejects the range. On a second setup it requests only the gap.
 
 Exit code 3 means another Bot holds the lease. Exit code 4 means the membership does not match this sheet. Stop and explain. Do not apply the file.
 
@@ -83,11 +83,11 @@ Exit code 2 means auth failed. Do not apply an older mutation file over current 
 
 Apply the mutation file with the Sheets plugin:
 
-1. Append a `new_items` row only when that `item_id` is not already on `Items`.
+1. Leave `Items` unchanged. Do not add a household item because it appeared on a receipt.
 2. Write `aliases` for each `item_alias_updates` entry. Do not replace the rest of the row.
-3. Append an event only when its `source_ref` is not already present.
-4. Upsert `RetailMemory` by `retail_key`.
-5. Upsert the `integration_upsert` object onto the `costco` row: `status`, `location`, `membership_fingerprint`, `history_from`, `history_through`, `last_sync_at`, and `last_summary`. Do not copy `owner` or `lease_until` from the file. The membership number itself is not in the file.
+3. Append an event only when its `source_ref` is not already present. Do not append a row for a price check.
+4. Update `RetailMemory` where `retail_key` already exists. Append a row only for a new key.
+5. Update the existing `costco` row from `integration_upsert`: `status`, `location`, `membership_fingerprint`, `history_from`, `history_through`, `last_sync_at`, and `last_summary`. Append that row only if it does not exist yet. Do not copy `owner` or `lease_until` from the file, and do not append a second `costco` row. The membership number itself is not in the file.
 
 Tell the user the `summary.text` line the command printed. Quote it. Do not invent receipt counts, dates, or item counts.
 

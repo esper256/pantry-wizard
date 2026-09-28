@@ -18,7 +18,7 @@ A current row is a price reduction when the quoted regular price is at least $0.
 
 `price_scope=warehouse` is set only when the payload has a warehouse price field. A generic catalog price is recorded as `online` and is not the warehouse shelf tag.
 
-The mutation file does not change `inventory_state`, quantity, purchase intent, preferred stores, or item policy. A brand-new item is created with `inventory_state=unknown` because a receipt is not a stock count.
+The mutation file does not add `Items` rows and does not change `inventory_state`, quantity, purchase intent, preferred stores, or item policy. A receipt SKU that the household has not already named stays in `RetailMemory` with a blank `item_id`. A price change updates that row. It does not append an event.
 
 A household installs this through [SETUP.md](SETUP.md). That document is the procedure a Grok Bot follows. This page is the developer note for the CLI.
 
@@ -46,7 +46,7 @@ costco-sync run \
 
 `warehouses` lists recent warehouse numbers, names, and receipt counts. It writes no mutation file. `history` walks backward about a year at a time, or fetches only the gap when the snapshot already has Costco history. `run` uses the local cursor in `~/.costco-sync/state.db`. With no cursor it looks back 90 days. Receipt details are cached in that database so a later run does not download them again.
 
-Import keeps receipts for the confirmed warehouse on `Integrations.location`. The legacy `preferred_costco_warehouse` value is used only when that row has no location. Receipts from every other warehouse are counted as skipped and are not written into events or `RetailMemory`.
+Import keeps receipts for the confirmed warehouse on `Integrations.location`. A snapshot may still carry `preferred_costco_warehouse` when that row has no location yet. The sheet itself has no per-store `Config` key. Receipts from every other warehouse are counted as skipped and are not written into events or `RetailMemory`.
 
 The command prints a one-line summary of receipts imported, the dates actually returned, distinct item numbers, and how many receipts were already present. Exit code 1 means the warehouse is not confirmed or Costco rejected the date range. Exit code 2 means Costco auth failed. Exit code 3 means another Bot holds the lease. Exit code 4 means the membership fingerprint does not match. Those failures leave the output file untouched.
 
@@ -59,10 +59,14 @@ The Bot exports this JSON with the Sheets plugin before each run:
 ```json
 {
   "household_timezone": "America/Los_Angeles",
-  "preferred_costco_warehouse": "121 Foster City",
   "items": [],
   "retail_memory": [],
-  "integrations": [],
+  "integrations": [
+    {
+      "integration_key": "costco",
+      "location": "121 Foster City"
+    }
+  ],
   "known_source_refs": []
 }
 ```
@@ -83,11 +87,11 @@ integration_upsert     Integrations columns except owner and lease_until
 
 Apply it in this order:
 
-1. Append a `new_items` row only when that `item_id` is not already on `Items`.
+1. Leave `Items` unchanged. `new_items` is empty. Do not add a household item for a receipt SKU.
 2. Write `aliases` for each `item_alias_updates` entry. Do not replace the rest of the row.
-3. Append an event only when its `source_ref` is not already present.
-4. Upsert `RetailMemory` by `retail_key`.
-5. Upsert `integration_upsert` onto the `costco` row. Leave `owner` and `lease_until` as the Bot wrote them.
+3. Append an event only when its `source_ref` is not already present. Do not append a price observation.
+4. Update `RetailMemory` on the existing `retail_key`. Append a row only when that key is absent.
+5. Update the one `costco` row from `integration_upsert`. Append that row only when `integration_key=costco` is absent. Leave `owner` and `lease_until` as the Bot wrote them. Do not append a second Costco row.
 
 If Costco auth fails, do not apply an older mutation file over current prices.
 

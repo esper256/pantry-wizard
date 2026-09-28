@@ -113,8 +113,7 @@ def test_reimport_skips_known_source_refs_and_does_not_double_count():
     assert first["retail_memory_upserts"][0]["purchase_count"] == "1"
     assert first["retail_memory_upserts"][0]["baseline_unit_price"] == ""
     assert first["retail_memory_upserts"][0]["reduction_kind"] == "instant_savings"
-    deal_refs = [event["source_ref"] for event in first["events"] if event["event_type"] == "deal_observed"]
-    assert deal_refs == ["costco:deal:121:1553261:9.99:instant_savings"]
+    assert not any(event["event_type"] == "deal_observed" for event in first["events"])
 
     second_snapshot = _snapshot(
         items=first["new_items"],
@@ -174,7 +173,7 @@ def test_existing_inventory_is_not_rewritten_and_one_purchase_is_not_a_preferenc
     assert "plenty" not in json.dumps(mutations["item_alias_updates"])
 
 
-def test_new_item_does_not_invent_stock_or_a_preferred_store():
+def test_a_receipt_does_not_create_a_household_item():
     receipt = parse_receipt_detail(_guac())
     mutations, _, _ = build_mutations(
         _snapshot(),
@@ -186,12 +185,12 @@ def test_new_item_does_not_invent_stock_or_a_preferred_store():
         already_sampled=set(),
         now=NOW,
     )
-    item = mutations["new_items"][0]
-    assert item["inventory_state"] == "unknown"
-    assert item["purchase_intent"] == ""
-    assert item["preferred_stores"] == ""
-    assert item["quantity_estimate"] == ""
-    assert "current stock unknown" in item["state_summary"]
+    assert mutations["new_items"] == []
+    purchased = [event for event in mutations["events"] if event["event_type"] == "purchased"]
+    assert len(purchased) == 1
+    assert purchased[0]["item_id"] == ""
+    assert mutations["retail_memory_upserts"][0]["retailer_sku"] == "1553261"
+    assert mutations["retail_memory_upserts"][0]["item_id"] == ""
 
 
 def test_price_check_stays_on_the_interest_set():
@@ -362,7 +361,8 @@ def test_few_cents_are_not_a_price_reduction_and_a_real_drop_is():
         now=NOW,
     )
     assert real["retail_memory_upserts"][0]["reduction_kind"] == "below_baseline"
-    assert any(event["event_type"] == "deal_observed" for event in real["events"])
+    assert real["retail_memory_upserts"][0]["current_price"] == "8.49"
+    assert not any(event["event_type"] == "deal_observed" for event in real["events"])
 
 
 def test_failed_price_lookup_does_not_clear_a_known_price():

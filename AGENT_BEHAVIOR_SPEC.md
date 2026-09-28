@@ -350,11 +350,11 @@ It MAY additionally contain:
 
 ```text
 behavior_spec_version       0.4
-schema_version              0.3
+schema_version              0.2
 schema_url                  <authoritative schema document>
 ```
 
-Connected stores live on `Integrations`, not as extra config keys. `preferred_costco_warehouse` is a legacy note. New setup writes `Integrations.location`.
+Connected stores live on `Integrations`, one row per store, updated in place. Do not add a `Config` key per store. The confirmed location is `Integrations.location`.
 
 Configuration metadata is not ordinary household inventory and SHOULD NOT be modified casually by agents.
 
@@ -1360,7 +1360,7 @@ In particular, an importer MUST NOT:
 - overwrite `item_policy` or an inventory explanation just to paste in a sale;
 - copy payment details, membership numbers, or credentials into the workbook.
 
-Recent purchases and current reductions belong in `RetailMemory`, with idempotent `Events` rows for new evidence. The briefing agent decides whether a cheaper price is worth buying. A sale still does not make inventory low (`DEAL-01`, `STATE-04`).
+Recent purchases belong in `RetailMemory` and in one idempotent `purchased` or `refunded` event per receipt line. Current reductions belong only in `RetailMemory` and are updated in place. A price check does not append an event, and a receipt does not create an `Items` row. The briefing agent decides whether a cheaper price is worth buying. A sale still does not make inventory low (`DEAL-01`, `STATE-04`).
 
 ---
 
