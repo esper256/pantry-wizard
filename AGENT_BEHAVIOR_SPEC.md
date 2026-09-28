@@ -1,7 +1,7 @@
 # Agent Behavior Specification
 
 **Status:** Baseline specification  
-**Version:** 0.2
+**Version:** 0.3
 
 ## Document Purpose
 
@@ -128,7 +128,7 @@ The acknowledgement SHOULD be deliberately distinctive and SHOULD include the ru
 
 Example:
 
-> Shopping data steward active — runtime instructions v0.2 loaded.
+> Shopping data steward active — runtime instructions v0.3 loaded.
 
 The agent MUST NOT emit this acknowledgement unless the applicable runtime instructions were actually available to it.
 
@@ -279,6 +279,20 @@ Examples include:
 
 `Items` is derived working state.
 
+### `RetailMemory`
+
+A replaceable cache of commercial facts for retailer SKUs the household already buys or has linked to a household item.
+
+Examples include:
+
+- the last unit price paid at a warehouse;
+- a typical non-sale price;
+- the current sell price and whether it is reduced;
+- when that current price was observed;
+- which household item the SKU matches, when the match is known.
+
+`RetailMemory` is not inventory and it is not a promotion ledger. Current prices are updated in place. A named-store briefing reads it. Ordinary inventory questions do not.
+
 ---
 
 ## DATA-02 — Events are evidence; Items are interpretation
@@ -286,6 +300,8 @@ Examples include:
 The `Events` dataset is the historical evidence record.
 
 The `Items` dataset is a materialized interpretation of current household state.
+
+The `RetailMemory` dataset is a commercial cache. It MUST NOT be used to repair or overwrite inventory state.
 
 If the two cannot be reconciled, the agent SHOULD prefer:
 
@@ -326,16 +342,17 @@ At minimum it SHOULD support:
 ```text
 key                         value
 ------------------------------------------------------------
-protocol_version            0.2
+protocol_version            0.3
 runtime_instructions_url    <authoritative runtime document>
 ```
 
 It MAY additionally contain:
 
 ```text
-behavior_spec_version       0.2
-schema_version              0.1
+behavior_spec_version       0.3
+schema_version              0.2
 schema_url                  <authoritative schema document>
+preferred_costco_warehouse  <warehouse number and short name>
 ```
 
 Configuration metadata is not ordinary household inventory and SHOULD NOT be modified casually by agents.
@@ -1328,6 +1345,24 @@ Expired promotions SHOULD cease influencing current recommendations.
 
 ---
 
+## EXT-04 — Receipt import is purchase and price evidence, not a stock count
+
+A receipt import records that a membership purchased an item at a price. It MAY record a later price observation for a SKU the household already buys or needs.
+
+It MUST NOT be treated as a physical inventory audit.
+
+In particular, an importer MUST NOT:
+
+- set `inventory_state` or a quantity from receipt history;
+- treat years of purchases as the cartons still in the house;
+- set a preferred store from a single receipt;
+- overwrite `item_policy` or an inventory explanation just to paste in a sale;
+- copy payment details, membership numbers, or credentials into the workbook.
+
+Recent purchases and current reductions belong in `RetailMemory`, with idempotent `Events` rows for new evidence. The briefing agent decides whether a cheaper price is worth buying. A sale still does not make inventory low (`DEAL-01`, `STATE-04`).
+
+---
+
 # 17. Learning Household Patterns
 
 ## LEARN-01 — Learn conservatively
@@ -1385,10 +1420,12 @@ A trip briefing SHOULD consider:
 - likely shortages;
 - items worth checking before departure;
 - preferred store;
-- current deals;
+- current deals on `RetailMemory` for that store;
 - known excess stock;
-- recent purchases;
+- recent purchases, including `RetailMemory.last_paid_at`;
 - likely near-term consumption.
+
+For a named store, read `RetailMemory` rows for that store together with `Config` and `Items`. Do not scan `Events` just to discover the current price. An active `reduction_kind` is a stock-up candidate only when household need, storage, and explicit don't-buy still allow it (`DEAL-01` through `DEAL-05`). `price_scope=online` is the online or member price, not a claim about the warehouse shelf tag.
 
 ---
 
@@ -2009,12 +2046,13 @@ They are restated here for convenience but remain governed by their full definit
 - `STOCK-04` — Overstock reduces future purchasing optionality.
 - `STOCK-05` — Storage and perishability matter.
 
-### Deals
+### Deals and external commercial data
 
 - `DEAL-01` — Deals change purchase desirability, not inventory truth.
 - `DEAL-02` — Strong deals do not override obvious excess inventory.
 - `DEAL-03` — Stock-up decisions should account for future use.
 - `DEAL-05` — Do not fabricate economic precision.
+- `EXT-04` — Receipt import is purchase and price evidence, not a stock count. Named-store briefings read `RetailMemory`.
 
 ### Multi-agent integrity
 

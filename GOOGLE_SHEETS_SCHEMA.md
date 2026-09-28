@@ -1,8 +1,8 @@
 # Google Sheets Shopping Database Schema
 
 **Status:** Draft  
-**Schema Version:** 0.1  
-**Related protocol:** `AGENT_RUNTIME_INSTRUCTIONS.md` v0.2
+**Schema Version:** 0.2  
+**Related protocol:** `AGENT_RUNTIME_INSTRUCTIONS.md` v0.3
 
 ## Purpose
 
@@ -23,12 +23,13 @@ The design is not intended to turn Google Sheets into a general-purpose relation
 
 # 1. Workbook Layout
 
-A new household Shopping Database contains exactly three required sheets:
+A new household Shopping Database contains exactly four required sheets:
 
 ```text
-Config    small control-plane metadata
-Items     compact materialized current household state
-Events    append-only evidence/history ledger
+Config         small control-plane metadata
+Items          compact materialized current household state
+RetailMemory   replaceable commercial cache for known retailer SKUs
+Events         append-only evidence/history ledger
 ```
 
 The important architectural distinction is:
@@ -40,6 +41,11 @@ The important architectural distinction is:
                  Config + Items
                     HOT PATH
                         │
+                        │ named-store briefing
+                        ▼
+                  RetailMemory
+               COMMERCIAL CACHE
+                        │
                         │ state-changing observation
                         ▼
                       Events
@@ -48,7 +54,9 @@ The important architectural distinction is:
 
 Routine agent operation SHOULD NOT require scanning `Events`.
 
-`Items` exists specifically to make current household state cheap to retrieve. `Events` exists to preserve evidence, provide auditability, and allow state to be reconstructed when inference or concurrent writes go wrong.
+`Items` exists specifically to make current household state cheap to retrieve. `RetailMemory` exists so a named-store briefing can see recent purchase prices and current price reductions without scanning `Events`. `Events` exists to preserve evidence, provide auditability, and allow state to be reconstructed when inference or concurrent writes go wrong.
+
+Ordinary inventory questions SHOULD ignore `RetailMemory`. A question such as "I'm heading to Costco" SHOULD read the `RetailMemory` rows for that store.
 
 ---
 
@@ -94,8 +102,9 @@ The portable baseline is:
 
 ```text
 READ   Config + Items
+READ   RetailMemory when briefing a named store
 WRITE  append one or more Events
-WRITE  update affected fields in Items
+WRITE  update affected fields in Items or RetailMemory
 ```
 
 Implementations that support batching MAY reduce those operations further.
@@ -125,13 +134,14 @@ Official references:
 
 | `key` | Initial `value` | `description` |
 |---|---|---|
-| `schema_version` | `0.1` | Shopping Database schema version |
+| `schema_version` | `0.2` | Shopping Database schema version |
 | `schema_url` | *(set during setup)* | Authoritative `GOOGLE_SHEETS_SCHEMA.md` |
-| `protocol_version` | `0.2` | Required agent runtime-instruction version |
+| `protocol_version` | `0.3` | Required agent runtime-instruction version |
 | `runtime_instructions_url` | *(set during setup)* | Authoritative `AGENT_RUNTIME_INSTRUCTIONS.md` |
-| `behavior_spec_version` | `0.2` | Informational behavior-spec version |
+| `behavior_spec_version` | `0.3` | Informational behavior-spec version |
 | `behavior_spec_url` | *(set during setup)* | Full behavior specification |
 | `household_timezone` | *(set during setup)* | IANA timezone such as `America/Los_Angeles` |
+| `preferred_costco_warehouse` | *(optional)* | Home Costco warehouse number and short name, such as `121 Foster City`. Blank when the household has no home warehouse. |
 | `currency` | *(set during setup)* | Currency such as `USD` |
 | `timestamp_format` | `ISO-8601 with explicit timezone offset` | Machine-written timestamp convention |
 
@@ -163,6 +173,9 @@ occurred_at
 inventory_as_of
 intent_expires_at
 updated_at
+observed_at
+reduction_ends_at
+last_paid_at
 ```
 
 Agents MUST serialize these values as ISO-8601 text with an explicit timezone offset.
@@ -181,7 +194,9 @@ Agents MUST NOT write:
 
 Spreadsheet columns for these fields SHOULD be formatted as Plain text so Sheets does not rewrite the stored representation.
 
-For `occurred_at`, store only the precision supported by evidence. A date-only value such as `2026-09-10` is acceptable when the evidence does not establish a time. Agents MUST NOT invent an exact time.
+For `occurred_at` and `last_paid_at`, store only the precision supported by evidence. A date-only value such as `2026-09-10` is acceptable when the evidence does not establish a time. Agents MUST NOT invent an exact time.
+
+`reduction_ends_at` MAY be date-only when the promotion evidence gives a last day and no time. Leave it blank when no end is known. Do not invent one.
 
 ---
 
@@ -191,7 +206,7 @@ For `occurred_at`, store only the precision supported by evidence. A date-only v
 
 There is one row per canonical household item.
 
-A normal agent interaction SHOULD be answerable from `Config` + `Items` without reading historical `Events`.
+A normal inventory interaction SHOULD be answerable from `Config` + `Items` without reading historical `Events` or `RetailMemory`. A named-store briefing also reads `RetailMemory`.
 
 ## Columns
 
@@ -275,6 +290,42 @@ Opened last tube Sep 8; one in use and no unopened reserve known.
 An agent can usually understand the current interpretation without retrieving the historical ledger. The ledger remains available when the summary appears contradictory, needs correction, or requires deeper reconstruction.
 
 ---
+
+# 6A. `RetailMemory` Sheet
+
+`RetailMemory` is the hot-path cache of commercial facts for retailer SKUs the household already buys or has explicitly connected to a household item.
+
+There is one row per store, warehouse or location, and retailer SKU. Rows are upserted in place. The sheet is not a promotion ledger and it is not household inventory.
+
+A normal inventory question SHOULD ignore this sheet. A named-store briefing SHOULD read the rows for that store. The expected size is the household's own known SKUs, not the retailer's catalog, so reading the sheet is cheap.
+
+## Columns
+
+| Column | Meaning |
+|---|---|
+| `retail_key` | Stable identity, never a row number. Costco keys look like `costco:{warehouseNumber}:{itemNumber}` |
+| `item_id` | Link to `Items.item_id` when the SKU is matched to a household item. Blank when identity is still ambiguous |
+| `store` | Retailer name, such as `Costco` |
+| `location` | Warehouse or store location, such as `121 Foster City` |
+| `retailer_sku` | Retailer item number |
+| `retailer_name` | Best product name known for that SKU |
+| `receipt_name` | Abbreviated name as printed on a receipt, when known |
+| `last_paid_unit_price` | Most recent non-refund unit price actually paid, after instant savings |
+| `last_paid_at` | When that price was paid. Date-only is correct for a receipt date |
+| `baseline_unit_price` | Typical unit price from purchases that were not themselves instant savings |
+| `purchase_count` | Count of purchase lines folded into this row, excluding refunds |
+| `current_price` | Latest observed sell price. Blank when no current observation exists |
+| `regular_price` | Pre-discount price when the source provides one |
+| `reduction_kind` | Blank, `instant_savings`, `below_baseline`, or `instant_savings,below_baseline` |
+| `reduction_ends_at` | When the current reduction ends, if known |
+| `price_scope` | `warehouse` or `online`. Blank when no current price was observed |
+| `observed_at` | When `current_price` was observed |
+
+`reduction_kind` blank means there is no current price reduction to act on. A sale does not change `Items.inventory_state`.
+
+Importers MUST NOT copy payment details, membership numbers, or credentials into this sheet.
+
+Price observations are replaceable. Re-running an import updates the current-price columns in place. A day with the same price does not require a new `Events` row.
 
 # 7. `Events` Sheet
 
@@ -379,11 +430,12 @@ Preferred flow:
 
 ```text
 1. Read Config + Items.
-2. Synthesize the briefing.
-3. Read Events only if a particular current state needs deeper reconciliation.
+2. Read RetailMemory rows for the named store.
+3. Synthesize the briefing.
+4. Read Events only if a particular current state needs deeper reconciliation.
 ```
 
-Routine store briefings SHOULD NOT scan the full ledger.
+Routine store briefings SHOULD NOT scan the full ledger. `RetailMemory` is the commercial hot path: recent prices paid and current reductions for known SKUs. Other questions SHOULD skip it.
 
 ---
 
@@ -514,6 +566,25 @@ Shared Agentic Shopping Database
 │   ├── updated_at
 │   └── updated_by
 │
+├── RetailMemory
+│   ├── retail_key
+│   ├── item_id
+│   ├── store
+│   ├── location
+│   ├── retailer_sku
+│   ├── retailer_name
+│   ├── receipt_name
+│   ├── last_paid_unit_price
+│   ├── last_paid_at
+│   ├── baseline_unit_price
+│   ├── purchase_count
+│   ├── current_price
+│   ├── regular_price
+│   ├── reduction_kind
+│   ├── reduction_ends_at
+│   ├── price_scope
+│   └── observed_at
+│
 └── Events
     ├── event_id
     ├── recorded_at
@@ -533,7 +604,7 @@ Shared Agentic Shopping Database
     └── supersedes_event_id
 ```
 
-`Items` and `Events` contain only their header rows when a household starts.
+`Items`, `RetailMemory`, and `Events` contain only their header rows when a household starts.
 
 `Config` contains the initial configuration rows defined above, including `schema_url` and `timestamp_format`.
 
@@ -543,6 +614,10 @@ Timestamp columns SHOULD be formatted as Plain text in a blank workbook so Sheet
 
 # 14. Explicit Non-Goals for v0.1
 
+Schema 0.2 adds `RetailMemory`, a replaceable cache of known-SKU prices. That does not add a permanent promotion-history table. Current prices are updated in place. A `deal_observed` event is appended only when a reduction appears or the observed price materially changes.
+
+The other v0.1 non-goals still apply.
+
 Schema v0.1 intentionally does NOT include:
 
 - a secondary index sheet;
@@ -551,7 +626,7 @@ Schema v0.1 intentionally does NOT include:
 - a separate aliases table;
 - a separate chat-interactions table;
 - a separate preferences table;
-- a dedicated deals table;
+- a permanent promotion-history table;
 - locking or leases;
 - row-version compare-and-swap machinery;
 - developer metadata indexes;
