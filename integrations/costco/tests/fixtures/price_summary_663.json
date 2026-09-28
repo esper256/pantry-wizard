@@ -1,0 +1,66 @@
+{
+  "productData": [
+    {
+      "id": "1542070",
+      "descriptions": [
+        {
+          "languageKey": "en-US",
+          "object": {
+            "shortDescription": "Goldfish Baked Snack Crackers, Cheddar, 66 oz"
+          }
+        }
+      ],
+      "discounts": [],
+      "displayPrice": [
+        {
+          "warehouseNumber": "663",
+          "currency": "USD",
+          "onlinePrice": 11.79,
+          "aggregatedDiscountAmt": 0,
+          "deliveredPrice": 11.79
+        }
+      ]
+    },
+    {
+      "id": "1553261",
+      "descriptions": [
+        {
+          "languageKey": "en-US",
+          "object": {
+            "shortDescription": "Wholly Guacamole Organic Mild Guacamole, 15 oz, 3-count"
+          }
+        }
+      ],
+      "discounts": [
+        {
+          "warehouseNumber": "663",
+          "promotions": [
+            {
+              "promotionStartDate": "2026-09-28T07:00:00Z",
+              "promotionEndDate": "2026-10-25T07:00:00Z",
+              "calculatedDiscountAmount": 3.5,
+              "promotionType": "AMT_OFF_IND_CAT_ENT"
+            }
+          ],
+          "temporaryPriceReductions": []
+        }
+      ],
+      "displayPrice": [
+        {
+          "warehouseNumber": "663",
+          "currency": "USD",
+          "onlinePrice": 13.99,
+          "aggregatedDiscountAmt": 3.5,
+          "deliveredPrice": 10.49
+        },
+        {
+          "warehouseNumber": "847",
+          "currency": "USD",
+          "onlinePrice": 15.99,
+          "aggregatedDiscountAmt": 0,
+          "deliveredPrice": 15.99
+        }
+      ]
+    }
+  ]
+}

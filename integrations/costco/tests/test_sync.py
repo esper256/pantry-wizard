@@ -10,8 +10,14 @@ from pathlib import Path
 import pytest
 
 from costco_sync.decide import build_mutations, snapshot_from_json
+from costco_sync.live import CostcoSource
 from costco_sync.models import AuthError, PriceLookupResult, PriceQuote, SearchHit
-from costco_sync.normalize import barcodes_from_list, parse_catalog_prices, parse_receipt_detail
+from costco_sync.normalize import (
+    barcodes_from_list,
+    parse_catalog_prices,
+    parse_receipt_detail,
+    parse_summary_prices,
+)
 from costco_sync.run import write_import
 from costco_sync.store import StateStore
 
@@ -418,6 +424,7 @@ def test_failed_price_lookup_does_not_clear_a_known_price():
     assert row["reduction_kind"] == "instant_savings"
     assert row["purchase_count"] == "3"
     assert "inventory_state" not in row
+    assert mutations["price_lookup"] == "failed"
 
 
 def test_refund_is_evidence_and_not_part_of_the_price_baseline():
@@ -450,6 +457,94 @@ def test_refund_is_evidence_and_not_part_of_the_price_baseline():
     kinds = [event["event_type"] for event in mutations["events"]]
     assert kinds.count("purchased") == 1
     assert kinds.count("refunded") == 1
+
+
+def test_warehouse_summary_prices_record_the_sale_and_leave_an_unsale_price():
+    """Recorded from the product summary API for warehouse 663 on 2026-09-28.
+
+    Item 1553261 is $3.50 off through 2026-10-25 at that warehouse. Item 1542070
+    has a warehouse price and no promotion. A 847 price on the same payload is
+    not the 663 price.
+    """
+    payload = json.loads((Path(__file__).parent / "fixtures" / "price_summary_663.json").read_text())
+    quotes = {
+        quote.item_number: quote
+        for quote in parse_summary_prices(payload["productData"], "663")
+    }
+    guac = quotes["1553261"]
+    assert guac.current_price == Decimal("10.49")
+    assert guac.regular_price == Decimal("13.99")
+    assert guac.price_scope == "warehouse"
+    assert guac.explicit_instant_savings
+    assert guac.reduction_ends_at == "2026-10-25"
+    assert guac.product_name.startswith("Wholly Guacamole")
+    crackers = quotes["1542070"]
+    assert crackers.current_price == Decimal("11.79")
+    assert crackers.regular_price == Decimal("11.79")
+    assert crackers.price_scope == "warehouse"
+    assert not crackers.explicit_instant_savings
+    assert crackers.reduction_ends_at == ""
+
+    def prices(skus, warehouse):
+        assert warehouse == "663"
+        assert skus == ["1542070", "1553261"]
+        return PriceLookupResult(ok=True, quotes=list(quotes.values()))
+
+    snapshot = _snapshot(
+        preferred_costco_warehouse="663 Concord",
+        retail_memory=[
+            {
+                "retail_key": "costco:663:1553261",
+                "store": "Costco",
+                "location": "663 Concord",
+                "retailer_sku": "1553261",
+                "receipt_name": "GUAC",
+                "current_price": "",
+            },
+            {
+                "retail_key": "costco:663:1542070",
+                "store": "Costco",
+                "location": "663 Concord",
+                "retailer_sku": "1542070",
+                "receipt_name": "GOLDFISH",
+                "current_price": "",
+            },
+        ],
+    )
+    mutations, _, _ = build_mutations(
+        snapshot,
+        [],
+        names={},
+        price_lookup=prices,
+        search=_no_search,
+        baseline_samples={},
+        already_sampled=set(),
+        now=NOW,
+    )
+    assert mutations["price_lookup"] == "ok"
+    by_key = {row["retail_key"]: row for row in mutations["retail_memory_upserts"]}
+    assert by_key["costco:663:1553261"]["current_price"] == "10.49"
+    assert by_key["costco:663:1553261"]["regular_price"] == "13.99"
+    assert by_key["costco:663:1553261"]["reduction_kind"] == "instant_savings"
+    assert by_key["costco:663:1553261"]["reduction_ends_at"] == "2026-10-25"
+    assert by_key["costco:663:1553261"]["price_scope"] == "warehouse"
+    assert by_key["costco:663:1542070"]["current_price"] == "11.79"
+    assert by_key["costco:663:1542070"]["reduction_kind"] == ""
+    assert not any(event["event_type"] == "deal_observed" for event in mutations["events"])
+
+
+def test_price_summary_http_400_does_not_become_an_auth_failure():
+    source = CostcoSource.__new__(CostcoSource)
+    source._require_auth = lambda: None
+
+    def rejected(item_numbers, warehouse):
+        del item_numbers, warehouse
+        raise RuntimeError("Costco price summary returned HTTP 400")
+
+    source._price_summaries = rejected
+    result = source.lookup_prices(["1553261"], "663")
+    assert result.ok is False
+    assert result.quotes == []
 
 
 def test_catalog_price_scope():

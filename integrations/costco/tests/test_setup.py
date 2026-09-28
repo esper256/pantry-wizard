@@ -66,8 +66,9 @@ def _snapshot_path(tmp_path: Path, **overrides) -> Path:
 class Catalog:
     """Receipts keyed by listing end date, in Costco's M/DD/YYYY form."""
 
-    def __init__(self, windows: dict[str, list[dict] | Exception]) -> None:
+    def __init__(self, windows: dict[str, list[dict] | Exception], *, prices_ok: bool = True) -> None:
         self.windows = windows
+        self.prices_ok = prices_ok
         self.calls: list[tuple[str, str]] = []
         self.priced_at: list[str] = []
         self.details = {}
@@ -100,6 +101,8 @@ class Catalog:
 
         del skus
         self.priced_at.append(warehouse)
+        if not self.prices_ok:
+            return PriceLookupResult(ok=False, quotes=[])
         return PriceLookupResult(ok=True, quotes=[])
 
     def search_products(self, query, warehouse, limit=5):
@@ -146,6 +149,8 @@ def test_other_warehouses_are_excluded_and_the_summary_counts_them(tmp_path: Pat
     assert mutations["new_items"] == []
     assert summary["text"] in encoded
     assert "Imported 1 Costco receipts" in summary["text"]
+    assert "Price lookup failed" not in summary["text"]
+    assert mutations["price_lookup"] == "ok"
     upsert = mutations["integration_upsert"]
     assert upsert["membership_fingerprint"] == _fingerprint()
     assert upsert["history_from"] == "2026-09-01"
@@ -153,6 +158,19 @@ def test_other_warehouses_are_excluded_and_the_summary_counts_them(tmp_path: Pat
     assert "owner" not in upsert
     assert "lease_until" not in upsert
     assert upsert["last_summary"] == summary["text"]
+
+
+def test_failed_price_lookup_is_visible_and_still_writes_the_import(tmp_path: Path, capsys):
+    source = Catalog({"9/28/2026": [_guac()]}, prices_ok=False)
+    mutations = _run(tmp_path, source)
+    captured = capsys.readouterr()
+    summary = mutations["summary"]
+    assert mutations["price_lookup"] == "failed"
+    assert "Price lookup failed; current prices were not refreshed." in summary["text"]
+    assert summary["text"] == mutations["integration_upsert"]["last_summary"]
+    assert "Price lookup failed; current prices were not refreshed." in captured.err
+    assert summary["receipts_imported"] == 1
+    assert mutations["events"]
 
 
 def test_second_setup_fetches_only_the_gap_and_does_not_duplicate(tmp_path: Path):

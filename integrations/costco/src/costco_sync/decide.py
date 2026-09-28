@@ -257,6 +257,7 @@ def build_mutations(
 
     mutations = {
         "generated_at": generated_at,
+        "price_lookup": "ok" if lookup.ok else "failed",
         "new_items": [],
         "item_alias_updates": [
             {"item_id": item_id, "aliases": aliases}

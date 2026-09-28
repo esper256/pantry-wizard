@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from costco_sync.decide import build_mutations, snapshot_from_json, warehouse_nu
 from costco_sync.models import PriceLookupResult, RangeRejected, Receipt
 from costco_sync.normalize import barcodes_from_list, membership_number, parse_receipt_detail
 from costco_sync.setupflow import (
+    PRICE_LOOKUP_FAILURE,
     assert_lease,
     assert_location,
     assert_membership,
@@ -136,7 +138,10 @@ def import_windows(
     def price_lookup(item_numbers: list[str], warehouse: str) -> PriceLookupResult:
         if not item_numbers or not warehouse:
             return PriceLookupResult(ok=True, quotes=[])
-        return source.lookup_prices(item_numbers, warehouse)
+        result = source.lookup_prices(item_numbers, warehouse)
+        if not result.ok:
+            print(PRICE_LOOKUP_FAILURE, file=sys.stderr)
+        return result
 
     def search(query: str, warehouse: str):
         return source.search_products(query, warehouse, limit=5)
@@ -151,7 +156,14 @@ def import_windows(
         already_sampled=store.sampled_refs(),
         now=now,
     )
-    summary = build_summary(snapshot, kept, len(skipped), mutations, location)
+    summary = build_summary(
+        snapshot,
+        kept,
+        len(skipped),
+        mutations,
+        location,
+        price_lookup_failed=mutations.get("price_lookup") == "failed",
+    )
     mutations["summary"] = summary
     mutations["integration_upsert"] = integration_upsert(
         snapshot,
