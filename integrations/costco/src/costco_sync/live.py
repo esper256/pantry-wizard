@@ -1,32 +1,25 @@
 """Live Costco client built on costco-mcp-server.
 
 The dependency owns Azure AD B2C refresh tokens and the warehouse receipt
-queries. Price lookup is a spike on the same warehouse-scoped products query:
-if Costco rejects the extra fields, names still resolve and current prices
-are left unchanged.
+queries. Current prices come from the product summary API the costco.com
+product page calls. ``CatalogDataType`` does not expose ``price`` or
+``listPrice``, and ``priceData`` on the products GraphQL query is a catalog
+price that does not follow the warehouse or an instant-savings promotion.
 """
 
 from __future__ import annotations
 
-from costco_sync.models import AuthError, PriceLookupResult, RangeRejected, SearchHit
-from costco_sync.normalize import parse_catalog_prices
+import time
 
-_PRICE_QUERY = """
-query products($clientId: String!, $itemNumbers: [String], $locale: [String], $warehouseNumber: String!) {
-  products(clientId: $clientId, itemNumbers: $itemNumbers, locale: $locale, warehouseNumber: $warehouseNumber) {
-    catalogData {
-      itemNumber
-      description { shortDescription }
-      price
-      listPrice
-      offerPrice
-      warehousePrice
-      regularPrice
-      priceValidThrough
-    }
-  }
-}
-"""
+from costco_sync.models import AuthError, PriceLookupResult, RangeRejected, SearchHit
+from costco_sync.normalize import parse_summary_prices
+
+# From the product page's productDetailApiV2Config. These are public client
+# ids shipped in costco.com's HTML, not member secrets.
+_SUMMARY_URL = "https://gdx-api.costco.com/catalog/product/product-api/v2/products/summary"
+_SUMMARY_CLIENT_IDENTIFIER = "b1be4e95-8696-4d93-8f50-5b5632922209"
+_SUMMARY_BATCH = 20
+PRICE_BATCH_PAUSE_SECONDS = 20
 
 
 class CostcoSource:
@@ -70,14 +63,17 @@ class CostcoSource:
         if not item_numbers:
             return PriceLookupResult(ok=True, quotes=[])
         try:
-            catalog = self._price_catalog(item_numbers, warehouse_number)
+            products = self._price_summaries(item_numbers, warehouse_number)
         except AuthError:
             raise
         except Exception as exc:
             if _is_auth_failure(exc):
                 raise AuthError("Costco authentication failed") from exc
             return PriceLookupResult(ok=False, quotes=[])
-        return PriceLookupResult(ok=True, quotes=parse_catalog_prices(catalog))
+        return PriceLookupResult(
+            ok=True,
+            quotes=parse_summary_prices(products, warehouse_number),
+        )
 
     def search_products(self, query: str, warehouse_number: str, limit: int = 5) -> list[SearchHit]:
         """Name search is intentionally empty until a stable item-number match exists.
@@ -112,8 +108,14 @@ class CostcoSource:
                 raise RangeRejected("Costco rejected this receipt date range") from exc
             raise
 
-    def _price_catalog(self, item_numbers: list[str], warehouse_number: str) -> list[dict]:
-        from costco_mcp_server.api import PRODUCT_GRAPHQL_ENDPOINT
+    def _price_summaries(
+        self,
+        item_numbers: list[str],
+        warehouse_number: str,
+        *,
+        pause_seconds: float = PRICE_BATCH_PAUSE_SECONDS,
+        sleep=time.sleep,
+    ) -> list[dict]:
         from costco_mcp_server.auth import WCS_CLIENT_ID
         from curl_cffi import requests as curl_requests
 
@@ -123,28 +125,35 @@ class CostcoSource:
             "chrome131",
         )
         found: list[dict] = []
-        for offset in range(0, len(item_numbers), 20):
-            batch = item_numbers[offset : offset + 20]
-            variables = {
-                "itemNumbers": batch,
-                "clientId": WCS_CLIENT_ID,
-                "locale": ["en-US"],
-                "warehouseNumber": warehouse_number,
-            }
-            response = curl_requests.post(
-                PRODUCT_GRAPHQL_ENDPOINT,
-                json={"query": _PRICE_QUERY, "variables": variables},
-                headers=self._api._headers(),
+        offsets = range(0, len(item_numbers), _SUMMARY_BATCH)
+        for index, offset in enumerate(offsets):
+            if index and pause_seconds:
+                sleep(pause_seconds)
+            batch = item_numbers[offset : offset + _SUMMARY_BATCH]
+            response = curl_requests.get(
+                _SUMMARY_URL,
+                params={
+                    "clientId": WCS_CLIENT_ID,
+                    "items": ",".join(batch),
+                    "whsNumber": warehouse_number,
+                    "locales": "en-us",
+                },
+                headers={
+                    "Accept": "application/json",
+                    "client-identifier": _SUMMARY_CLIENT_IDENTIFIER,
+                    "costco-env": "prd",
+                    "Origin": "https://www.costco.com",
+                    "Referer": "https://www.costco.com/",
+                },
                 impersonate=impersonate,
                 timeout=30,
             )
-            if response.status_code == 401:
-                raise AuthError("Costco authentication failed")
-            response.raise_for_status()
+            if response.status_code != 200:
+                raise RuntimeError(f"Costco price summary returned HTTP {response.status_code}")
             body = response.json()
-            if body.get("errors"):
-                raise RuntimeError("Costco product query rejected the price selection set")
-            found.extend(body.get("data", {}).get("products", {}).get("catalogData") or [])
+            if not isinstance(body, dict) or "productData" not in body:
+                raise RuntimeError("Costco price summary did not return productData")
+            found.extend(body.get("productData") or [])
         return found
 
 

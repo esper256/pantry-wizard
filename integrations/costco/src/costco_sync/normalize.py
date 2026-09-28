@@ -8,11 +8,14 @@ discount rows are not products. Payment and membership fields are ignored.
 from __future__ import annotations
 
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
+from zoneinfo import ZoneInfo
 
 from costco_sync.models import NormalizedLine, RawLine, Receipt
-from costco_sync.money import to_decimal
+from costco_sync.money import CENT, REDUCTION_THRESHOLD, to_decimal
+
+_PACIFIC = ZoneInfo("America/Los_Angeles")
 
 _FEE_PHRASES = (
     "BOTTLE DEPOSIT",
@@ -113,6 +116,118 @@ def parse_catalog_prices(catalog_items: list[dict]) -> list:
             )
         )
     return quotes
+
+
+def parse_summary_prices(products: list[dict], warehouse_number: str) -> list:
+    """Read warehouse prices from the product summary API.
+
+    ``displayPrice.onlinePrice`` is the warehouse price before a promotion.
+    ``displayPrice.deliveredPrice`` is what a member pays after that promotion.
+    Both follow ``whsNumber``. A promotion of at least ten cents is instant savings.
+    """
+    from costco_sync.models import PriceQuote
+
+    quotes = []
+    warehouse = str(warehouse_number)
+    for product in products:
+        if not isinstance(product, dict):
+            continue
+        item_number = str(product.get("id") or "")
+        if not item_number:
+            continue
+        display = _summary_display(product.get("displayPrice"), warehouse)
+        if display is None:
+            continue
+        current = _cents(display.get("deliveredPrice"))
+        regular = _cents(display.get("onlinePrice"))
+        if current is None:
+            current = regular
+        if current is None or current <= 0:
+            continue
+        if regular is None or regular <= 0:
+            regular = current
+        discount = _cents(display.get("aggregatedDiscountAmt")) or Decimal(0)
+        ends = _promotion_end(product.get("discounts"), warehouse)
+        explicit = discount >= REDUCTION_THRESHOLD or bool(ends)
+        quotes.append(
+            PriceQuote(
+                item_number=item_number,
+                current_price=current,
+                regular_price=regular,
+                reduction_ends_at=ends if explicit else "",
+                price_scope="warehouse",
+                product_name=_summary_name(product),
+                explicit_instant_savings=explicit,
+            )
+        )
+    return quotes
+
+
+def _summary_display(display: object, warehouse: str) -> dict | None:
+    if isinstance(display, dict):
+        rows = [display]
+    elif isinstance(display, list):
+        rows = [row for row in display if isinstance(row, dict)]
+    else:
+        return None
+    for row in rows:
+        if str(row.get("warehouseNumber") or "") == warehouse:
+            return row
+    return None
+
+
+def _promotion_end(discounts: object, warehouse: str) -> str:
+    if not isinstance(discounts, list):
+        return ""
+    ends: list[str] = []
+    for row in discounts:
+        if not isinstance(row, dict):
+            continue
+        row_warehouse = str(row.get("warehouseNumber") or "")
+        if row_warehouse and row_warehouse != warehouse:
+            continue
+        for promo in row.get("promotions") or []:
+            if not isinstance(promo, dict):
+                continue
+            amount = _cents(promo.get("calculatedDiscountAmount")) or Decimal(0)
+            if amount < REDUCTION_THRESHOLD:
+                continue
+            day = _pacific_date(str(promo.get("promotionEndDate") or ""))
+            if day:
+                ends.append(day)
+    return max(ends) if ends else ""
+
+
+def _summary_name(product: dict) -> str:
+    descriptions = product.get("descriptions") or []
+    if not descriptions or not isinstance(descriptions[0], dict):
+        return ""
+    obj = descriptions[0].get("object") or {}
+    if not isinstance(obj, dict):
+        return ""
+    return str(obj.get("shortDescription") or "")
+
+
+def _cents(value: object) -> Decimal | None:
+    parsed = to_decimal(value)
+    if parsed is None:
+        return None
+    return parsed.quantize(CENT, rounding=ROUND_HALF_UP)
+
+
+def _pacific_date(value: str) -> str:
+    text = value.strip()
+    if not text:
+        return ""
+    if "T" not in text and len(text) >= 10:
+        return text[:10]
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return text[:10] if len(text) >= 10 else ""
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(_PACIFIC).date().isoformat()
 
 
 def _unwrap_receipt(payload: dict) -> dict:

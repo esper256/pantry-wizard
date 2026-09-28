@@ -12,7 +12,7 @@ Warehouse receipts only. Gas and car wash documents are skipped. Online orders a
 
 Each real receipt line becomes a `purchased` event. An instant-savings child (description `/` plus the parent item number, negative amount) is folded into the parent unit price. Bottle deposits and similar fee lines are dropped. Refunds become `refunded` events and do not move the non-sale price baseline.
 
-Current prices are requested only for item numbers already on a warehouse receipt, already in `RetailMemory`, or confidently matched to a household item that is requested, low, or already tied to Costco. There is no walk of the savings circular. An ambiguous name search is left unmatched.
+Current prices are requested only for item numbers already on a warehouse receipt, already in `RetailMemory`, or confidently matched to a household item that is requested, low, or already tied to Costco. One run prices at most 60 of those that are due: new receipt lines and rows already on sale first, then quiet history. A sale is checked again in about a day, a quiet price in about a week. A number Costco does not price stays on the sheet, and the wait before the next check doubles up to about 90 days. That schedule is in `~/.costco-sync/state.db`, not in the workbook. There is no walk of the savings circular. An ambiguous name search is left unmatched.
 
 A current row is a price reduction when the quoted regular price is at least $0.10 above the current price, or the current price is at least $0.10 under this household's non-sale baseline. The same price on a later day does not add another event.
 

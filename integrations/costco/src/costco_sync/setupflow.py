@@ -13,6 +13,7 @@ from costco_sync.decide import costco_integration, home_location, warehouse_numb
 from costco_sync.models import LeaseError, LocationRequired, MembershipError, Receipt, Snapshot
 
 LEASE_HOURS = 36
+PRICE_LOOKUP_FAILURE = "Price lookup failed; current prices were not refreshed."
 HISTORY_CHUNK_DAYS = 365
 MAX_HISTORY_CHUNKS = 15
 
@@ -96,6 +97,8 @@ def build_summary(
     skipped_other_warehouses: int,
     mutations: dict,
     location: str,
+    *,
+    price_lookup_failed: bool = False,
 ) -> dict:
     imported_dates: list[str] = []
     imported = 0
@@ -131,6 +134,7 @@ def build_summary(
         "oldest": oldest,
         "newest": newest,
         "distinct_items": len(items),
+        "price_lookup_failed": price_lookup_failed,
     }
     summary["text"] = summary_text(summary)
     return summary
@@ -143,17 +147,25 @@ def summary_text(summary: dict) -> str:
         span = ""
         if summary["oldest"] and summary["newest"]:
             span = f" from {summary['oldest']} through {summary['newest']}"
-        return (
+        text = (
             f"Costco history for {summary['warehouse']} is already in the sheet{span}. "
             f"No new receipts.{skip_sentence}"
         )
-    return (
-        f"Imported {summary['receipts_imported']} Costco receipts from {summary['warehouse']}, "
-        f"{summary['oldest']} through {summary['newest']}, "
-        f"covering {summary['distinct_items']} items. "
-        f"{summary['receipts_already_present']} receipts were already in the sheet."
-        f"{skip_sentence}"
-    )
+    else:
+        text = (
+            f"Imported {summary['receipts_imported']} Costco receipts from {summary['warehouse']}, "
+            f"{summary['oldest']} through {summary['newest']}, "
+            f"covering {summary['distinct_items']} items. "
+            f"{summary['receipts_already_present']} receipts were already in the sheet."
+            f"{skip_sentence}"
+        )
+    return _with_price_note(text, summary)
+
+
+def _with_price_note(text: str, summary: dict) -> str:
+    if not summary.get("price_lookup_failed"):
+        return text
+    return f"{text} {PRICE_LOOKUP_FAILURE}"
 
 
 def integration_upsert(

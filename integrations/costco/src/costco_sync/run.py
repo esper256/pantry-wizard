@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
+from costco_sync.cadence import advance_checks, fresh_purchase_skus, rows_by_sku, select_due
 from costco_sync.decide import build_mutations, snapshot_from_json, warehouse_number
 from costco_sync.models import PriceLookupResult, RangeRejected, Receipt
 from costco_sync.normalize import barcodes_from_list, membership_number, parse_receipt_detail
 from costco_sync.setupflow import (
+    PRICE_LOOKUP_FAILURE,
     assert_lease,
     assert_location,
     assert_membership,
@@ -24,6 +28,15 @@ from costco_sync.setupflow import (
 from costco_sync.store import StateStore
 
 WAREHOUSE_LOOKBACK_DAYS = 180
+
+
+def _local_date(now: datetime, timezone_name: str) -> date:
+    try:
+        zone = ZoneInfo(timezone_name or "UTC")
+    except Exception:
+        zone = ZoneInfo("UTC")
+    moment = now if now.tzinfo else now.replace(tzinfo=timezone.utc)
+    return moment.astimezone(zone).date()
 
 
 def to_costco_date(day: date) -> str:
@@ -133,10 +146,27 @@ def import_windows(
     if skus and home:
         names = source.lookup_product_names(skus, home) or {}
 
+    held: dict = {}
+
     def price_lookup(item_numbers: list[str], warehouse: str) -> PriceLookupResult:
         if not item_numbers or not warehouse:
             return PriceLookupResult(ok=True, quotes=[])
-        return source.lookup_prices(item_numbers, warehouse)
+        due = select_due(
+            item_numbers,
+            rows=rows_by_sku(snapshot.retail_memory, home),
+            fresh=fresh_purchase_skus(kept, snapshot.known_source_refs),
+            checks=store.price_checks(),
+            now=now,
+            today=_local_date(now, snapshot.household_timezone),
+        )
+        if not due:
+            return PriceLookupResult(ok=True, quotes=[])
+        result = source.lookup_prices(due, warehouse)
+        held["requested"] = due
+        held["result"] = result
+        if not result.ok:
+            print(PRICE_LOOKUP_FAILURE, file=sys.stderr)
+        return result
 
     def search(query: str, warehouse: str):
         return source.search_products(query, warehouse, limit=5)
@@ -151,7 +181,26 @@ def import_windows(
         already_sampled=store.sampled_refs(),
         now=now,
     )
-    summary = build_summary(snapshot, kept, len(skipped), mutations, location)
+    result = held.get("result")
+    requested = held.get("requested") or []
+    if result is not None and result.ok and requested:
+        store.save_price_checks(
+            advance_checks(
+                requested,
+                result.quotes,
+                store.price_checks(),
+                now,
+                _local_date(now, snapshot.household_timezone),
+            )
+        )
+    summary = build_summary(
+        snapshot,
+        kept,
+        len(skipped),
+        mutations,
+        location,
+        price_lookup_failed=mutations.get("price_lookup") == "failed",
+    )
     mutations["summary"] = summary
     mutations["integration_upsert"] = integration_upsert(
         snapshot,
