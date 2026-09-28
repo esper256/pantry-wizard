@@ -83,7 +83,7 @@ class CostcoSource:
         if not self._auth.is_authenticated:
             raise AuthError(
                 f"Costco account '{self._auth.account}' has no refresh token. "
-                "Run `costco-sync auth --refresh-token ...` after logging in with costco-auth-browser."
+                "Run `costco-sync auth` and copy the refreshtoken secret from Chrome DevTools."
             )
 
     def _call(self, method, *args):

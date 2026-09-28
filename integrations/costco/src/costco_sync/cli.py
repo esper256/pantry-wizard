@@ -102,9 +102,10 @@ def _auth(account: str | None, refresh_token: str | None) -> int:
     print(f"Refresh token present: {status.get('has_refresh_token')}")
     if not status.get("has_refresh_token"):
         print(
-            "Log in at https://www.costco.com in this computer's browser, then copy the "
-            "MSAL refresh-token secret. costco-auth-browser can open that browser. "
-            "Save it with: costco-sync auth --account personal --refresh-token <token>"
+            "Do not scrape the refresh token from a browser. On your own computer, in Chrome, "
+            "log in at https://www.costco.com. Open Developer Tools, Application, Local Storage, "
+            "https://signin.costco.com. Copy the secret from the key whose name contains refreshtoken. "
+            "Save it with: costco-sync auth --account personal --refresh-token <secret>"
         )
     return 0
 

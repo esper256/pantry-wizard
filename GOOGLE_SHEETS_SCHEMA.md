@@ -2,7 +2,7 @@
 
 **Status:** Draft  
 **Schema Version:** 0.2  
-**Related protocol:** `AGENT_RUNTIME_INSTRUCTIONS.md` v0.4
+**Related protocol:** `AGENT_RUNTIME_INSTRUCTIONS.md` v0.5
 
 ## Purpose
 
@@ -138,9 +138,9 @@ Official references:
 |---|---|---|
 | `schema_version` | `0.2` | Shopping Database schema version |
 | `schema_url` | *(set during setup)* | Authoritative `GOOGLE_SHEETS_SCHEMA.md` |
-| `protocol_version` | `0.4` | Required agent runtime-instruction version |
+| `protocol_version` | `0.5` | Required agent runtime-instruction version |
 | `runtime_instructions_url` | *(set during setup)* | Authoritative `AGENT_RUNTIME_INSTRUCTIONS.md` |
-| `behavior_spec_version` | `0.4` | Informational behavior-spec version |
+| `behavior_spec_version` | `0.5` | Informational behavior-spec version |
 | `behavior_spec_url` | *(set during setup)* | Full behavior specification |
 | `household_timezone` | *(set during setup)* | IANA timezone such as `America/Los_Angeles` |
 | `currency` | *(set during setup)* | Currency such as `USD` |

@@ -24,23 +24,27 @@ Computer Update, Recover, and Reset remove installed packages, so every later ru
 
 ## 3. Log in and prove the receipt list works
 
-Open `https://www.costco.com` in this computer’s browser and let the person log in there. Do not ask them to paste a Costco password into chat.
+Do this before any Costco command. Do not open Costco in the Bot browser to scrape the refresh token. The Bot cannot read that token out of the browser, and trying is what produces the first error.
 
-The Costco login is only for reading receipts and prices. Do not use the credentials, the refresh token, or this browser session to buy anything on the shopping list, check out, or place an order. Purchasing stays solely with the person.
+Say this to the person:
 
-Save the browser refresh token:
+> I can’t read the Costco refresh token from the browser. On your own computer, in Chrome, log in at https://www.costco.com. Open Developer Tools, choose Application, then Local Storage, then `https://signin.costco.com`. Find the key whose name contains `refreshtoken`, and paste only its `secret` value here. I will use it to read receipts and prices. I will not use it to buy anything.
+
+Do not ask them to paste a Costco password. When they paste the secret, save it and do not repeat it back:
 
 ```bash
 costco-sync auth --account personal --refresh-token <token>
 ```
 
-Then list recent warehouses:
+The login is only for reading receipts and prices. Do not use the credentials, the refresh token, or a browser session to buy anything on the shopping list, check out, or place an order. Purchasing stays solely with the person. Do not put the token in the sheet, the mutation file, or a GitHub issue.
+
+Then prove the token works:
 
 ```bash
 costco-sync warehouses
 ```
 
-Exit code 2 means the login did not work. Stop and retry the browser login. Do not continue to a download.
+Exit code 2 means the secret was rejected. Ask the person to copy the `secret` once more. If it fails again, file a redacted issue as described in [integrations/README.md](../README.md). Do not continue to a download.
 
 `warehouses` prints lines of `number name`, a tab, and a receipt count, busiest first. It does not write a mutation file.
 
@@ -77,9 +81,9 @@ costco-sync history --snapshot household.json --out mutations.json --owner <this
 
 The command keeps receipts whose warehouse number matches `Integrations.location`. It walks backward about a year at a time until a year is empty or Costco rejects the range. On a second setup it requests only the gap.
 
-Exit code 3 means another Bot holds the lease. Exit code 4 means the membership does not match this sheet. Stop and explain. Do not apply the file.
+Exit code 3 means another Bot holds the lease. Exit code 4 means the membership does not match this sheet. Stop and explain. Do not apply the file. Those two cases are not Costco API bugs. Do not file an issue for them.
 
-Exit code 2 means auth failed. Do not apply an older mutation file over current prices.
+Exit code 2 means auth failed. Do not apply an older mutation file over current prices. Ask for a fresh DevTools `secret` once. If it still fails, or the command crashes, or Costco’s response cannot be parsed, file a redacted issue as described in [integrations/README.md](../README.md).
 
 ## 7. Apply and tell the truth
 
@@ -104,6 +108,6 @@ Only after the summary has been said, save the daily routine:
 3. Run `costco-sync run --snapshot household.json --out mutations.json --owner <this-bot>`.
 4. Apply the mutation file the same way.
 5. Renew `lease_until` for 36 hours.
-6. Stay quiet unless auth failed or a staple newly went on sale.
+6. Stay quiet unless auth failed or a staple newly went on sale. When Costco’s API errors, file a redacted GitHub issue as described in [integrations/README.md](../README.md). Do not paste the refresh token into that issue.
 
 Setup is finished when that summary has been said. The next “I’m going to Costco” question then has history to read.
