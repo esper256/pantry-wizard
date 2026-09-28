@@ -138,7 +138,7 @@ def test_reimport_skips_known_source_refs_and_does_not_double_count():
     )
     assert second["events"] == []
     assert second["new_items"] == []
-    assert second["retail_memory_upserts"][0]["purchase_count"] == "1"
+    assert second["retail_memory_upserts"] == []
 
 
 def test_existing_inventory_is_not_rewritten_and_one_purchase_is_not_a_preference():
@@ -425,6 +425,53 @@ def test_failed_price_lookup_does_not_clear_a_known_price():
     assert row["purchase_count"] == "3"
     assert "inventory_state" not in row
     assert mutations["price_lookup"] == "failed"
+
+
+def test_unchanged_price_is_not_written_back():
+    def prices(skus, warehouse):
+        del skus, warehouse
+        return PriceLookupResult(
+            ok=True,
+            quotes=[
+                PriceQuote(
+                    item_number="42",
+                    current_price=Decimal("11.99"),
+                    regular_price=Decimal("11.99"),
+                    price_scope="warehouse",
+                    product_name="Spin",
+                )
+            ],
+        )
+
+    snapshot = _snapshot(
+        retail_memory=[
+            {
+                "retail_key": "costco:121:42",
+                "store": "Costco",
+                "location": "121 Foster City",
+                "retailer_sku": "42",
+                "retailer_name": "Spindrift",
+                "current_price": "11.99",
+                "regular_price": "11.99",
+                "reduction_kind": "",
+                "reduction_ends_at": "",
+                "price_scope": "warehouse",
+                "observed_at": "2026-09-01T10:00:00-07:00",
+            }
+        ]
+    )
+    mutations, _, _ = build_mutations(
+        snapshot,
+        [],
+        names={},
+        price_lookup=prices,
+        search=_no_search,
+        baseline_samples={},
+        already_sampled=set(),
+        now=NOW,
+    )
+    assert mutations["retail_memory_upserts"] == []
+    assert mutations["price_lookup"] == "ok"
 
 
 def test_refund_is_evidence_and_not_part_of_the_price_baseline():

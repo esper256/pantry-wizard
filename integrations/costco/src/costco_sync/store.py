@@ -1,4 +1,4 @@
-"""Local cursor for receipt payloads and non-sale price samples.
+"""Local cursor for receipt payloads, price samples, and price-check timing.
 
 This state lives on the Grok Bot computer. It is not the shopping workbook.
 """
@@ -8,8 +8,10 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
+
+from costco_sync.cadence import PriceCheck
 
 
 class StateStore:
@@ -47,6 +49,15 @@ class StateStore:
             CREATE TABLE IF NOT EXISTS cursor (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 last_success_through TEXT
+            )
+            """
+        )
+        self._db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS price_checks (
+                item_number TEXT PRIMARY KEY,
+                next_check_at TEXT NOT NULL,
+                miss_count INTEGER NOT NULL
             )
             """
         )
@@ -101,5 +112,27 @@ class StateStore:
         self._db.execute(
             "INSERT OR REPLACE INTO cursor (id, last_success_through) VALUES (1, ?)",
             (day.isoformat(),),
+        )
+        self._db.commit()
+
+    def price_checks(self) -> dict[str, PriceCheck]:
+        rows = self._db.execute(
+            "SELECT item_number, next_check_at, miss_count FROM price_checks"
+        ).fetchall()
+        return {
+            item_number: PriceCheck(datetime.fromisoformat(next_check_at), int(miss_count))
+            for item_number, next_check_at, miss_count in rows
+        }
+
+    def save_price_checks(self, checks: dict[str, PriceCheck]) -> None:
+        self._db.executemany(
+            """
+            INSERT OR REPLACE INTO price_checks (item_number, next_check_at, miss_count)
+            VALUES (?, ?, ?)
+            """,
+            [
+                (item_number, check.next_check_at.isoformat(), check.miss_count)
+                for item_number, check in checks.items()
+            ],
         )
         self._db.commit()
