@@ -1,24 +1,28 @@
 # Pantry Wizard
 
-One shared pantry, kept in a Google Sheet and updated by talking to Grok Bot.
+An agent first shopping list that combines real understanding powered by Grok Bot with the durability and reliability imbued by the Google Sheet that backs it.
 
-Say what happened in the kitchen. The bot records it in the sheet. Someone else can ask their own bot before a shop and see the same pantry.
+Say what happened in the kitchen. In plain english, as you'd explain to any person to the Grok Bot and bot records it in the sheet. Other household members and do the same, and their bots coordinate using the shared Google Sheet.
 
 > “We’re out of milk.”
 >
-> “I opened the last toothpaste.”
+> “I opened a tube of toothpaste.”
 >
 > “We usually buy coffee at Safeway.”
+>
+> “Here's a photo of my grocery receipt.”
 
-The sheet keeps those apart. Running out of milk is a request. Finishing the toothpaste is a reason to look. Safeway is where the coffee usually comes from. A briefing can act on that record without inventing a count for every item in the house.
+The sheet keeps track of what's been said. Using up a tube of toothpaste doesn't mean you are out, but it does mean you might check the cupboard before a shopping trip.
 
 > “I’m heading to Safeway. What do I need to know?”
 
-The answer comes from the sheet: what was asked for, what is probably low, and what you already have.
+The answer comes from the sheet: what was asked for, what is probably low, and what you already have, filtered by an intelligent Bot that understands your habits.
 
-Costco is optional. The bot can read one warehouse’s receipts and today’s prices, including Costco’s promotions. That login is only used to read.
+Costco is an optional integration. The bot can read one warehouse’s receipts and today’s prices, including Costco’s promotions.
 
-If the bot cannot open the sheet, it says so and stops writing.
+> ”I'm going to costco, what's on sale that I should stock up on?”
+
+Pantry Wizard is an instruction manual for bots to become the ultimate shopping list.
 
 ## Set up your own copy
 
