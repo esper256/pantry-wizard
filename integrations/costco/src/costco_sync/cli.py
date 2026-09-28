@@ -7,8 +7,15 @@ import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from costco_sync.models import AuthError
-from costco_sync.run import default_window, write_import
+from costco_sync.models import AuthError, LeaseError, LocationRequired, MembershipError, RangeRejected
+from costco_sync.run import (
+    default_window,
+    format_warehouse_line,
+    list_warehouses,
+    warehouse_listing_window,
+    write_history,
+    write_import,
+)
 from costco_sync.store import StateStore
 
 _DEFAULT_STATE = Path.home() / ".costco-sync" / "state.db"
@@ -25,6 +32,12 @@ def main(argv: list[str] | None = None) -> int:
     auth.add_argument("--account", default=None, help="Account name, such as personal")
     auth.add_argument("--refresh-token", default=None, help="Refresh token from the browser login")
 
+    warehouses = sub.add_parser("warehouses", help="List recent warehouses and receipt counts")
+    warehouses.add_argument("--state", type=Path, default=_DEFAULT_STATE, help="Local SQLite path")
+    warehouses.add_argument("--account", default=None, help="costco-mcp account name")
+    warehouses.add_argument("--now", default=None, help="Override the clock, ISO-8601, for tests")
+    warehouses.add_argument("--since", default=None, help="First day, YYYY-MM-DD. Default is 180 days ago")
+
     run = sub.add_parser("run", help="Import receipts since the last success, defaulting to 90 days")
     _add_io(run)
 
@@ -33,16 +46,38 @@ def main(argv: list[str] | None = None) -> int:
     backfill.add_argument("--start", required=True, help="First day, YYYY-MM-DD")
     backfill.add_argument("--end", required=True, help="Last day, YYYY-MM-DD")
 
+    history = sub.add_parser(
+        "history",
+        help="Import full preferred-warehouse history, or only the gap when history already exists",
+    )
+    _add_io(history)
+
     args = parser.parse_args(argv)
     try:
         if args.command == "auth":
             return _auth(args.account, args.refresh_token)
+        if args.command == "warehouses":
+            return _warehouses(args)
         if args.command == "run":
             return _run(args)
+        if args.command == "history":
+            return _history(args)
         return _backfill(args)
+    except LocationRequired as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     except AuthError as exc:
         print(str(exc), file=sys.stderr)
         return 2
+    except LeaseError as exc:
+        print(str(exc), file=sys.stderr)
+        return 3
+    except MembershipError as exc:
+        print(str(exc), file=sys.stderr)
+        return 4
+    except RangeRejected as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
 
 
 def _add_io(parser: argparse.ArgumentParser) -> None:
@@ -50,6 +85,7 @@ def _add_io(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--out", required=True, type=Path, help="Mutation file to write")
     parser.add_argument("--state", type=Path, default=_DEFAULT_STATE, help="Local SQLite path")
     parser.add_argument("--account", default=None, help="costco-mcp account name")
+    parser.add_argument("--owner", default="", help="Bot identity compared with Integrations.owner")
     parser.add_argument("--now", default=None, help="Override the clock, ISO-8601, for tests")
 
 
@@ -73,12 +109,29 @@ def _auth(account: str | None, refresh_token: str | None) -> int:
     return 0
 
 
+def _warehouses(args: argparse.Namespace) -> int:
+    store = StateStore(args.state)
+    try:
+        today = _today(args.now)
+        since = date.fromisoformat(args.since) if args.since else None
+        start, end = warehouse_listing_window(today, since)
+        rows = list_warehouses(_source(args.account), store, start, end)
+    finally:
+        store.close()
+    if not rows:
+        print("No warehouse receipts in this window.")
+        return 0
+    for number, name, count in rows:
+        print(format_warehouse_line(number, name, count))
+    return 0
+
+
 def _run(args: argparse.Namespace) -> int:
     store = StateStore(args.state)
     try:
         today = _today(args.now)
         start, end = default_window(today, store.last_success_through())
-        write_import(
+        mutations = write_import(
             args.snapshot,
             args.out,
             store,
@@ -86,10 +139,11 @@ def _run(args: argparse.Namespace) -> int:
             start=start,
             end=end,
             now=_now(args.now),
+            owner=args.owner,
         )
     finally:
         store.close()
-    print(f"Wrote {args.out}")
+    _print_result(mutations, args.out)
     return 0
 
 
@@ -101,7 +155,7 @@ def _backfill(args: argparse.Namespace) -> int:
         return 1
     store = StateStore(args.state)
     try:
-        write_import(
+        mutations = write_import(
             args.snapshot,
             args.out,
             store,
@@ -109,11 +163,37 @@ def _backfill(args: argparse.Namespace) -> int:
             start=start,
             end=end,
             now=_now(args.now),
+            owner=args.owner,
         )
     finally:
         store.close()
-    print(f"Wrote {args.out}")
+    _print_result(mutations, args.out)
     return 0
+
+
+def _history(args: argparse.Namespace) -> int:
+    store = StateStore(args.state)
+    try:
+        mutations = write_history(
+            args.snapshot,
+            args.out,
+            store,
+            _source(args.account),
+            today=_today(args.now),
+            now=_now(args.now),
+            owner=args.owner,
+        )
+    finally:
+        store.close()
+    _print_result(mutations, args.out)
+    return 0
+
+
+def _print_result(mutations: dict, out: Path) -> None:
+    text = (mutations.get("summary") or {}).get("text")
+    if text:
+        print(text)
+    print(f"Wrote {out}")
 
 
 def _source(account: str | None):

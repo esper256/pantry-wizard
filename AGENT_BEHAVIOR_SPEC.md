@@ -1,7 +1,7 @@
 # Agent Behavior Specification
 
 **Status:** Baseline specification  
-**Version:** 0.3
+**Version:** 0.4
 
 ## Document Purpose
 
@@ -128,7 +128,7 @@ The acknowledgement SHOULD be deliberately distinctive and SHOULD include the ru
 
 Example:
 
-> Shopping data steward active — runtime instructions v0.3 loaded.
+> Shopping data steward active — runtime instructions v0.4 loaded.
 
 The agent MUST NOT emit this acknowledgement unless the applicable runtime instructions were actually available to it.
 
@@ -220,7 +220,7 @@ When an agent initially loads the runtime instructions, or loads a different run
 
 Example:
 
-> Shopping data steward active — runtime instructions v0.3 loaded.
+> Shopping data steward active — runtime instructions v0.4 loaded.
 
 Routine verification that an already-active version remains current SHOULD NOT repeatedly generate activation messages.
 
@@ -342,18 +342,19 @@ At minimum it SHOULD support:
 ```text
 key                         value
 ------------------------------------------------------------
-protocol_version            0.3
+protocol_version            0.4
 runtime_instructions_url    <authoritative runtime document>
 ```
 
 It MAY additionally contain:
 
 ```text
-behavior_spec_version       0.3
-schema_version              0.2
+behavior_spec_version       0.4
+schema_version              0.3
 schema_url                  <authoritative schema document>
-preferred_costco_warehouse  <warehouse number and short name>
 ```
+
+Connected stores live on `Integrations`, not as extra config keys. `preferred_costco_warehouse` is a legacy note. New setup writes `Integrations.location`.
 
 Configuration metadata is not ordinary household inventory and SHOULD NOT be modified casually by agents.
 
@@ -1363,6 +1364,20 @@ Recent purchases and current reductions belong in `RetailMemory`, with idempoten
 
 ---
 
+## INTEGRATION-01 — Install a store by its setup document
+
+When a person asks to install a store integration, the agent MUST load that store's `SETUP.md` from the same GitHub tree as `schema_url` and follow it.
+
+The agent MUST NOT invent install steps, warehouse choices, or import counts.
+
+A store importer runs for one confirmed location. Receipts from other locations of that retailer are not household history.
+
+Only one Bot schedules that importer. A future `lease_until` held by a different `owner` means do not start another schedule and do not import. A different `membership_fingerprint` means stop. The fingerprint is a hash. The membership number is not written to the sheet.
+
+Afterward, tell the household the tool's summary. Those counts and dates are evidence. Do not round them into a nicer story.
+
+---
+
 # 17. Learning Household Patterns
 
 ## LEARN-01 — Learn conservatively
@@ -1945,21 +1960,21 @@ Relevant rules:
 Conversation originally loaded:
 
 ```text
-runtime instructions v0.3
+runtime instructions v0.4
 ```
 
 Shared configuration now says:
 
 ```text
-protocol_version = 0.4
-runtime_instructions_url = <authoritative v0.4 document>
+protocol_version = 0.5
+runtime_instructions_url = <authoritative v0.5 document>
 ```
 
 Interpretation:
 
-1. retrieve runtime instructions v0.4;
+1. retrieve runtime instructions v0.5;
 2. make them available in active context;
-3. emit the v0.4 activation acknowledgement;
+3. emit the v0.5 activation acknowledgement;
 4. only then perform persistent household mutations.
 
 Relevant rules:
@@ -2053,6 +2068,7 @@ They are restated here for convenience but remain governed by their full definit
 - `DEAL-03` — Stock-up decisions should account for future use.
 - `DEAL-05` — Do not fabricate economic precision.
 - `EXT-04` — Receipt import is purchase and price evidence, not a stock count. Named-store briefings read `RetailMemory`.
+- `INTEGRATION-01` — Install a store by its setup document. One scheduled importer per store membership.
 
 ### Multi-agent integrity
 

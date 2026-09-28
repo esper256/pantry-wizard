@@ -1,4 +1,4 @@
-"""Fetch a date window of warehouse receipts and build a mutation file."""
+"""Fetch warehouse receipts and build a mutation file for the confirmed warehouse."""
 
 from __future__ import annotations
 
@@ -7,9 +7,23 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from costco_sync.decide import build_mutations, snapshot_from_json, warehouse_number
-from costco_sync.models import AuthError, PriceLookupResult
-from costco_sync.normalize import barcodes_from_list, parse_receipt_detail
+from costco_sync.models import PriceLookupResult, RangeRejected, Receipt
+from costco_sync.normalize import barcodes_from_list, membership_number, parse_receipt_detail
+from costco_sync.setupflow import (
+    assert_lease,
+    assert_location,
+    assert_membership,
+    build_summary,
+    gap_window,
+    has_costco_history,
+    history_chunks,
+    integration_upsert,
+    membership_fingerprint,
+    preferred_receipts,
+)
 from costco_sync.store import StateStore
+
+WAREHOUSE_LOOKBACK_DAYS = 180
 
 
 def to_costco_date(day: date) -> str:
@@ -26,34 +40,96 @@ def default_window(today: date, last_success: date | None) -> tuple[date, date]:
     return start, today
 
 
-def import_window(
-    snapshot_data: dict,
-    source,
-    store: StateStore,
-    *,
-    start: date,
-    end: date,
-    now: datetime,
-) -> dict:
+def warehouse_listing_window(today: date, since: date | None) -> tuple[date, date]:
+    if since is None:
+        return today - timedelta(days=WAREHOUSE_LOOKBACK_DAYS), today
+    return since, today
+
+
+def history_windows(snapshot_data: dict, today: date) -> list[tuple[date, date]]:
     snapshot = snapshot_from_json(snapshot_data)
+    if has_costco_history(snapshot):
+        return [gap_window(today, snapshot)]
+    return history_chunks(today)
+
+
+def collect_window(source, store: StateStore, start: date, end: date) -> tuple[list[Receipt], set[str]]:
     listing = source.list_warehouse_receipts(to_costco_date(start), to_costco_date(end))
-    barcodes = barcodes_from_list(listing)
-    receipts = []
-    for barcode in barcodes:
+    receipts: list[Receipt] = []
+    fingerprints: set[str] = set()
+    for barcode in barcodes_from_list(listing):
         payload = store.get_receipt(barcode)
         if payload is None:
             payload = source.get_receipt_detail(barcode)
             store.put_receipt(barcode, payload)
+        number = membership_number(payload)
+        if number:
+            fingerprints.add(membership_fingerprint(number))
         receipts.append(parse_receipt_detail(payload))
+    return receipts, fingerprints
 
-    home = warehouse_number(snapshot.preferred_costco_warehouse)
-    if not home:
-        for receipt in receipts:
-            if receipt.warehouse_number:
-                home = receipt.warehouse_number
-                break
+
+def list_warehouses(source, store: StateStore, start: date, end: date) -> list[tuple[str, str, int]]:
+    """Warehouse number, name, and receipt count. Writes nothing to the sheet."""
+    receipts, _fingerprints = collect_window(source, store, start, end)
+    counts: dict[tuple[str, str], int] = {}
+    for receipt in receipts:
+        key = (receipt.warehouse_number, receipt.warehouse_name)
+        counts[key] = counts.get(key, 0) + 1
+    ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0][0], item[0][1]))
+    return [(number, name, count) for (number, name), count in ranked]
+
+
+def format_warehouse_line(number: str, name: str, count: int) -> str:
+    label = f"{number} {name}".strip()
+    return f"{label}\t{count}"
+
+
+def import_windows(
+    snapshot_data: dict,
+    source,
+    store: StateStore,
+    *,
+    windows: list[tuple[date, date]],
+    now: datetime,
+    owner: str = "",
+) -> dict:
+    """Download, then keep only the confirmed warehouse.
+
+    Lease, location, and membership are checked before a mutation file exists.
+    A date range Costco rejects ends the walk. It does not discard receipts
+    already collected from an earlier chunk.
+    """
+    snapshot = snapshot_from_json(snapshot_data)
+    assert_lease(snapshot, owner, now)
+    location = assert_location(snapshot)
+    home = warehouse_number(location)
+    accumulated: list[Receipt] = []
+    fingerprints: set[str] = set()
+    found_preferred = False
+    collected_any_window = False
+    for start, end in windows:
+        try:
+            batch, batch_fingerprints = collect_window(source, store, start, end)
+        except RangeRejected:
+            if not collected_any_window:
+                raise
+            break
+        collected_any_window = True
+        preferred = [receipt for receipt in batch if receipt.warehouse_number == home]
+        if not batch:
+            break
+        if found_preferred and not preferred:
+            break
+        accumulated.extend(batch)
+        fingerprints |= batch_fingerprints
+        if preferred:
+            found_preferred = True
+
+    assert_membership(snapshot, fingerprints)
+    kept, skipped = preferred_receipts(accumulated, location)
     names: dict[str, str] = {}
-    skus = sorted({line.item_number for receipt in receipts for line in receipt.lines})
+    skus = sorted({line.item_number for receipt in kept for line in receipt.lines})
     if skus and home:
         names = source.lookup_product_names(skus, home) or {}
 
@@ -67,7 +143,7 @@ def import_window(
 
     mutations, samples, newly_sampled = build_mutations(
         snapshot,
-        receipts,
+        kept,
         names=names,
         price_lookup=price_lookup,
         search=search,
@@ -75,10 +151,20 @@ def import_window(
         already_sampled=store.sampled_refs(),
         now=now,
     )
+    summary = build_summary(snapshot, kept, len(skipped), mutations, location)
+    mutations["summary"] = summary
+    mutations["integration_upsert"] = integration_upsert(
+        snapshot,
+        summary,
+        fingerprints,
+        mutations["generated_at"],
+    )
     return {
         "mutations": mutations,
         "samples": samples,
         "newly_sampled": newly_sampled,
+        "summary": summary,
+        "end": windows[0][1] if windows else None,
     }
 
 
@@ -91,18 +177,52 @@ def write_import(
     start: date,
     end: date,
     now: datetime,
+    owner: str = "",
 ) -> dict:
-    """Run an import. Raises AuthError before replacing ``out_path``."""
+    """Import one date window. Raises before replacing ``out_path`` on refusal."""
+    return _write(snapshot_path, out_path, store, source, windows=[(start, end)], now=now, owner=owner)
+
+
+def write_history(
+    snapshot_path: Path,
+    out_path: Path,
+    store: StateStore,
+    source,
+    *,
+    today: date,
+    now: datetime,
+    owner: str = "",
+) -> dict:
     snapshot_data = json.loads(snapshot_path.read_text())
-    try:
-        result = import_window(snapshot_data, source, store, start=start, end=end, now=now)
-    except AuthError:
-        raise
+    windows = history_windows(snapshot_data, today)
+    return _write(snapshot_path, out_path, store, source, windows=windows, now=now, owner=owner)
+
+
+def _write(
+    snapshot_path: Path,
+    out_path: Path,
+    store: StateStore,
+    source,
+    *,
+    windows: list[tuple[date, date]],
+    now: datetime,
+    owner: str,
+) -> dict:
+    snapshot_data = json.loads(snapshot_path.read_text())
+    result = import_windows(
+        snapshot_data,
+        source,
+        store,
+        windows=windows,
+        now=now,
+        owner=owner,
+    )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     temporary = out_path.with_suffix(out_path.suffix + ".tmp")
     temporary.write_text(json.dumps(result["mutations"], indent=2, sort_keys=True) + "\n")
     temporary.replace(out_path)
     store.save_baseline_samples(result["samples"])
     store.mark_sampled(result["newly_sampled"])
-    store.set_last_success_through(end)
+    if result["end"] is not None:
+        store.set_last_success_through(result["end"])
     return result["mutations"]

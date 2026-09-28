@@ -8,7 +8,7 @@ are left unchanged.
 
 from __future__ import annotations
 
-from costco_sync.models import AuthError, PriceLookupResult, SearchHit
+from costco_sync.models import AuthError, PriceLookupResult, RangeRejected, SearchHit
 from costco_sync.normalize import parse_catalog_prices
 
 _PRICE_QUERY = """
@@ -89,11 +89,13 @@ class CostcoSource:
     def _call(self, method, *args):
         try:
             return method(*args)
-        except AuthError:
+        except (AuthError, RangeRejected):
             raise
         except Exception as exc:
             if _is_auth_failure(exc):
                 raise AuthError("Costco authentication failed") from exc
+            if _is_range_rejected(exc):
+                raise RangeRejected("Costco rejected this receipt date range") from exc
             raise
 
     def _price_catalog(self, item_numbers: list[str], warehouse_number: str) -> list[dict]:
@@ -136,5 +138,17 @@ def _is_auth_failure(exc: BaseException) -> bool:
     text = str(exc).casefold()
     if "not authenticated" in text or "authentication failed" in text:
         return True
+    return _status_code(exc) == 401
+
+
+def _is_range_rejected(exc: BaseException) -> bool:
+    return _status_code(exc) in {400, 422}
+
+
+def _status_code(exc: BaseException) -> int | None:
+    direct = getattr(exc, "status_code", None)
+    if isinstance(direct, int):
+        return direct
     response = getattr(exc, "response", None)
-    return getattr(response, "status_code", None) == 401
+    code = getattr(response, "status_code", None)
+    return code if isinstance(code, int) else None

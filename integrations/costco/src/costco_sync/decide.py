@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 
 from costco_sync.models import (
     HouseholdItem,
+    IntegrationRow,
     NormalizedLine,
     PriceLookupResult,
     PriceQuote,
@@ -133,13 +134,46 @@ def snapshot_from_json(data: dict) -> Snapshot:
         if row.get("retail_key")
     ]
     refs = {str(ref) for ref in data.get("known_source_refs") or [] if ref}
+    integrations = [
+        IntegrationRow(
+            integration_key=str(row.get("integration_key") or ""),
+            store=str(row.get("store") or ""),
+            status=str(row.get("status") or ""),
+            location=str(row.get("location") or ""),
+            membership_fingerprint=str(row.get("membership_fingerprint") or ""),
+            owner=str(row.get("owner") or ""),
+            lease_until=str(row.get("lease_until") or ""),
+            history_from=str(row.get("history_from") or ""),
+            history_through=str(row.get("history_through") or ""),
+            last_sync_at=str(row.get("last_sync_at") or ""),
+            last_summary=str(row.get("last_summary") or ""),
+        )
+        for row in data.get("integrations") or []
+        if row.get("integration_key")
+    ]
     return Snapshot(
         household_timezone=str(data.get("household_timezone") or "UTC"),
         preferred_costco_warehouse=str(data.get("preferred_costco_warehouse") or ""),
         items=items,
         retail_memory=retail,
+        integrations=integrations,
         known_source_refs=refs,
     )
+
+
+def costco_integration(snapshot: Snapshot) -> IntegrationRow | None:
+    for row in snapshot.integrations:
+        if row.integration_key == "costco":
+            return row
+    return None
+
+
+def home_location(snapshot: Snapshot) -> str:
+    """Confirmed Costco warehouse. The integration row wins over the legacy config key."""
+    row = costco_integration(snapshot)
+    if row is not None and row.location.strip():
+        return row.location.strip()
+    return (snapshot.preferred_costco_warehouse or "").strip()
 
 
 def warehouse_number(text: str) -> str:
@@ -160,8 +194,9 @@ def build_mutations(
 ) -> tuple[dict, dict[str, list[str]], set[str]]:
     """Return mutations, updated baseline samples, and refs newly added to samples."""
     generated_at = _format_now(now, snapshot.household_timezone)
-    home = warehouse_number(snapshot.preferred_costco_warehouse) or _fallback_warehouse(receipts)
-    home_name = _warehouse_name(snapshot.preferred_costco_warehouse, receipts, home)
+    home_text = home_location(snapshot)
+    home = warehouse_number(home_text)
+    home_name = _warehouse_name(home_text, receipts, home)
 
     items = list(snapshot.items)
     rows = {row.retail_key: _copy_row(row) for row in snapshot.retail_memory}
@@ -579,13 +614,6 @@ def _location_text(number: str, name: str) -> str:
     if name and number and name.startswith(number):
         return name
     return f"{number} {name}".strip()
-
-
-def _fallback_warehouse(receipts: list[Receipt]) -> str:
-    for receipt in receipts:
-        if receipt.warehouse_number:
-            return receipt.warehouse_number
-    return ""
 
 
 def _warehouse_name(preferred: str, receipts: list[Receipt], home: str) -> str:

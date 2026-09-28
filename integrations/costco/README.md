@@ -20,6 +20,8 @@ A current row is a price reduction when the quoted regular price is at least $0.
 
 The mutation file does not change `inventory_state`, quantity, purchase intent, preferred stores, or item policy. A brand-new item is created with `inventory_state=unknown` because a receipt is not a stock count.
 
+A household installs this through [SETUP.md](SETUP.md). That document is the procedure a Grok Bot follows. This page is the developer note for the CLI.
+
 ## Commands
 
 ```bash
@@ -29,16 +31,24 @@ pip install -e .
 costco-sync auth --account personal
 costco-sync auth --account personal --refresh-token <token>
 
-costco-sync backfill \
+costco-sync warehouses
+
+costco-sync history \
   --snapshot household.json \
   --out mutations.json \
-  --start 2024-01-01 \
-  --end 2026-09-28
+  --owner shopping-bot
 
-costco-sync run --snapshot household.json --out mutations.json
+costco-sync run \
+  --snapshot household.json \
+  --out mutations.json \
+  --owner shopping-bot
 ```
 
-`run` uses the local cursor in `~/.costco-sync/state.db`. With no cursor it looks back 90 days. `backfill` is the explicit history window. Receipt details are cached in that database so a later run does not download them again. Exit code 2 means Costco auth failed; the output file is left untouched.
+`warehouses` lists recent warehouse numbers, names, and receipt counts. It writes no mutation file. `history` walks backward about a year at a time, or fetches only the gap when the snapshot already has Costco history. `run` uses the local cursor in `~/.costco-sync/state.db`. With no cursor it looks back 90 days. Receipt details are cached in that database so a later run does not download them again.
+
+Import keeps receipts for the confirmed warehouse on `Integrations.location`. The legacy `preferred_costco_warehouse` value is used only when that row has no location. Receipts from every other warehouse are counted as skipped and are not written into events or `RetailMemory`.
+
+The command prints a one-line summary of receipts imported, the dates actually returned, distinct item numbers, and how many receipts were already present. Exit code 1 means the warehouse is not confirmed or Costco rejected the date range. Exit code 2 means Costco auth failed. Exit code 3 means another Bot holds the lease. Exit code 4 means the membership fingerprint does not match. Those failures leave the output file untouched.
 
 Grok Bot Secrets cannot feed this CLI. The refresh token has to be saved by `costco-sync auth` on the Bot computer. Every Bot on that Cursor account can read the computer, so keep the shopping Bot on an account where that is acceptable. Update, Recover, and Reset remove installed packages, so a routine should reinstall from this checkout before it runs.
 
@@ -52,6 +62,7 @@ The Bot exports this JSON with the Sheets plugin before each run:
   "preferred_costco_warehouse": "121 Foster City",
   "items": [],
   "retail_memory": [],
+  "integrations": [],
   "known_source_refs": []
 }
 ```
@@ -66,6 +77,8 @@ new_items
 item_alias_updates     item_id and aliases only
 events
 retail_memory_upserts
+summary                counts and the sentence to tell the household
+integration_upsert     Integrations columns except owner and lease_until
 ```
 
 Apply it in this order:
@@ -74,6 +87,7 @@ Apply it in this order:
 2. Write `aliases` for each `item_alias_updates` entry. Do not replace the rest of the row.
 3. Append an event only when its `source_ref` is not already present.
 4. Upsert `RetailMemory` by `retail_key`.
+5. Upsert `integration_upsert` onto the `costco` row. Leave `owner` and `lease_until` as the Bot wrote them.
 
 If Costco auth fails, do not apply an older mutation file over current prices.
 
@@ -84,8 +98,8 @@ One shopping Bot runs this on its cloud computer. No public MCP server is involv
 1. Connect Google Drive and Google Sheets for the household account.
 2. Clone this repo under `/workspace` and install `integrations/costco`.
 3. Open costco.com in the Bot's browser, log in, and save the refresh token with `costco-sync auth`.
-4. Load runtime instructions v0.3.
-5. Save a skill: reinstall the package, export the snapshot, run `costco-sync run`, apply the mutation file, and stop without writing if the command exits 2.
-6. Schedule that skill daily. It should report an auth failure or a newly reduced staple, and stay quiet otherwise.
+4. Load runtime instructions v0.4 and follow [SETUP.md](SETUP.md).
+5. Save a skill: reinstall the package, export the snapshot, run `costco-sync run`, apply the mutation file, renew the lease, and stop without writing if the command exits 2, 3, or 4.
+6. Schedule that skill daily only after the setup summary has been said. It should report an auth failure or a newly reduced staple, and stay quiet otherwise.
 
 The trip question reads `Config`, `Items`, and the Costco rows of `RetailMemory`. It uses the sheet. It runs the sync first only when those prices are stale.

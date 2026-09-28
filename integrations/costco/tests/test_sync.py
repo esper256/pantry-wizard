@@ -524,7 +524,9 @@ def test_auth_failure_does_not_write_a_mutation_file(tmp_path: Path):
 
 def test_cli_auth_failure_returns_2(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     snapshot = tmp_path / "snapshot.json"
-    snapshot.write_text("{}\n")
+    snapshot.write_text(
+        json.dumps({"preferred_costco_warehouse": "121 Foster City"}) + "\n"
+    )
     out = tmp_path / "mutations.json"
 
     class Boom:

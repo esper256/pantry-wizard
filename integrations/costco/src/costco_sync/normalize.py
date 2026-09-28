@@ -43,6 +43,12 @@ def parse_receipt_detail(payload: dict) -> Receipt:
     )
 
 
+def membership_number(payload: dict) -> str:
+    """Read a membership number so the caller can hash it. Do not store the raw value."""
+    receipt = _unwrap_receipt(payload)
+    return str(receipt.get("membershipNumber") or "").strip()
+
+
 def barcodes_from_list(payload: dict) -> list[str]:
     receipts = (
         payload.get("data", {})
