@@ -401,7 +401,12 @@ def _reduction_kind(quote: PriceQuote, baseline: Decimal | None) -> str:
         current is not None and regular is not None and regular - current >= REDUCTION_THRESHOLD
     ):
         kinds.append("instant_savings")
-    if current is not None and baseline is not None and baseline - current >= REDUCTION_THRESHOLD:
+    if (
+        not quote.variable_weight
+        and current is not None
+        and baseline is not None
+        and baseline - current >= REDUCTION_THRESHOLD
+    ):
         kinds.append("below_baseline")
     return ",".join(kinds)
 

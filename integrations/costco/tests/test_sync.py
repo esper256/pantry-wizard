@@ -580,6 +580,136 @@ def test_warehouse_summary_prices_record_the_sale_and_leave_an_unsale_price():
     assert not any(event["event_type"] == "deal_observed" for event in mutations["events"])
 
 
+def test_variable_weight_price_is_not_a_package_sale():
+    meat = {
+        "id": "33724",
+        "descriptions": [{"object": {"shortDescription": "Beef", "isVariableWeight": True}}],
+        "discounts": [
+            {
+                "warehouseNumber": "663",
+                "promotions": [
+                    {
+                        "promotionEndDate": "2027-06-16T07:00:00Z",
+                        "calculatedDiscountAmount": 0,
+                    }
+                ],
+            }
+        ],
+        "displayPrice": [
+            {
+                "warehouseNumber": "663",
+                "onlinePrice": 5.99,
+                "deliveredPrice": 5.99,
+                "aggregatedDiscountAmt": 0,
+            }
+        ],
+    }
+    quote = parse_summary_prices([meat], "663")[0]
+    assert quote.variable_weight is True
+    assert quote.explicit_instant_savings is False
+    assert quote.reduction_ends_at == ""
+
+    def prices(skus, warehouse):
+        del skus, warehouse
+        return PriceLookupResult(ok=True, quotes=[quote])
+
+    row = {
+        "retail_key": "costco:663:33724",
+        "store": "Costco",
+        "location": "663 Concord",
+        "retailer_sku": "33724",
+        "baseline_unit_price": "33.82",
+        "current_price": "",
+    }
+    quiet, _, _ = build_mutations(
+        _snapshot(preferred_costco_warehouse="663 Concord", retail_memory=[row]),
+        [],
+        names={},
+        price_lookup=prices,
+        search=_no_search,
+        baseline_samples={"costco:663:33724": ["33.82"]},
+        already_sampled=set(),
+        now=NOW,
+    )
+    written = quiet["retail_memory_upserts"][0]
+    assert written["current_price"] == "5.99"
+    assert written["reduction_kind"] == ""
+
+    meat["displayPrice"][0]["onlinePrice"] = 7.99
+    meat["displayPrice"][0]["aggregatedDiscountAmt"] = 2
+    meat["discounts"][0]["promotions"][0]["calculatedDiscountAmount"] = 2
+    sale = parse_summary_prices([meat], "663")[0]
+    assert sale.variable_weight is True
+    assert sale.explicit_instant_savings is True
+    assert sale.reduction_ends_at == "2027-06-16"
+
+    def sale_prices(skus, warehouse):
+        del skus, warehouse
+        return PriceLookupResult(ok=True, quotes=[sale])
+
+    promoted, _, _ = build_mutations(
+        _snapshot(preferred_costco_warehouse="663 Concord", retail_memory=[dict(row)]),
+        [],
+        names={},
+        price_lookup=sale_prices,
+        search=_no_search,
+        baseline_samples={"costco:663:33724": ["33.82"]},
+        already_sampled=set(),
+        now=NOW,
+    )
+    assert promoted["retail_memory_upserts"][0]["reduction_kind"] == "instant_savings"
+
+
+def test_a_failed_summary_batch_keeps_earlier_prices(monkeypatch, capsys):
+    source = CostcoSource.__new__(CostcoSource)
+    source._require_auth = lambda: None
+    pauses: list[float] = []
+    monkeypatch.setattr("costco_sync.live.time.sleep", lambda seconds: pauses.append(seconds))
+
+    class Response:
+        def __init__(self, code: int, products: list[dict]):
+            self.status_code = code
+            self._products = products
+
+        def json(self):
+            return {"productData": self._products}
+
+    calls: list[str] = []
+
+    def get(*args, **kwargs):
+        del args
+        items = kwargs["params"]["items"].split(",")
+        calls.append(items[0])
+        if items[0] == "0":
+            return Response(
+                200,
+                [
+                    {
+                        "id": "0",
+                        "descriptions": [{"object": {"shortDescription": "Milk"}}],
+                        "displayPrice": [
+                            {
+                                "warehouseNumber": "663",
+                                "onlinePrice": 4.99,
+                                "deliveredPrice": 4.99,
+                                "aggregatedDiscountAmt": 0,
+                            }
+                        ],
+                    }
+                ],
+            )
+        return Response(503, [])
+
+    monkeypatch.setattr("curl_cffi.requests.get", get)
+    result = source.lookup_prices([str(index) for index in range(40)], "663")
+    assert calls == ["0", "20", "20"]
+    assert pauses == [20, 20]
+    assert result.ok is True
+    assert [quote.item_number for quote in result.quotes] == ["0"]
+    assert result.checked == [str(index) for index in range(20)]
+    assert "HTTP 503 for 20 items." in capsys.readouterr().err
+
+
 def test_price_summary_http_400_does_not_become_an_auth_failure():
     source = CostcoSource.__new__(CostcoSource)
     source._require_auth = lambda: None

@@ -2,7 +2,7 @@
 
 **Status:** Draft  
 **Schema Version:** 0.2  
-**Related protocol:** `AGENT_RUNTIME_INSTRUCTIONS.md` v0.7
+**Related protocol:** `AGENT_RUNTIME_INSTRUCTIONS.md` v0.8
 
 ## Purpose
 
@@ -138,9 +138,9 @@ Official references:
 |---|---|---|
 | `schema_version` | `0.2` | Shopping Database schema version |
 | `schema_url` | *(set during setup)* | Authoritative `GOOGLE_SHEETS_SCHEMA.md` |
-| `protocol_version` | `0.7` | Required agent runtime-instruction version |
+| `protocol_version` | `0.8` | Required agent runtime-instruction version |
 | `runtime_instructions_url` | *(set during setup)* | Authoritative `AGENT_RUNTIME_INSTRUCTIONS.md` |
-| `behavior_spec_version` | `0.7` | Informational behavior-spec version |
+| `behavior_spec_version` | `0.8` | Informational behavior-spec version |
 | `behavior_spec_url` | *(set during setup)* | Full behavior specification |
 | `household_timezone` | *(set during setup)* | IANA timezone such as `America/Los_Angeles` |
 | `currency` | *(set during setup)* | Currency such as `USD` |
@@ -332,7 +332,7 @@ A normal inventory question SHOULD ignore this sheet. A named-store briefing SHO
 | `price_scope` | `warehouse` or `online`. Blank when no current price was observed |
 | `observed_at` | When `current_price` was observed |
 
-`reduction_kind` blank means there is no current price reduction to act on. A sale does not change `Items.inventory_state`.
+`reduction_kind` blank means there is no current price reduction to act on. `instant_savings` is the retailer's own promotion. `below_baseline` alone means the price is under this household's usual non-sale price. It is not a sale. A sale does not change `Items.inventory_state`.
 
 Importers MUST NOT copy payment details, membership numbers, or credentials into this sheet.
 
@@ -676,7 +676,7 @@ A Bot MAY do this when the person asks to install a store integration, or when `
 
 1. Add a `RetailMemory` sheet and an `Integrations` sheet if they are missing. Row 1 is the header row in the order in section 13. Both sheets are otherwise empty.
 2. Format `last_paid_at`, `observed_at`, `reduction_ends_at`, `lease_until`, and `last_sync_at` as Plain text.
-3. Set `Config` `schema_version` to `0.2`, `protocol_version` to `0.7`, and `behavior_spec_version` to `0.7`. If `schema_url`, `runtime_instructions_url`, `behavior_spec_url`, or `timestamp_format` is missing, add the row from section 4.
+3. Set `Config` `schema_version` to `0.2`, `protocol_version` to `0.8`, and `behavior_spec_version` to `0.8`. If `schema_url`, `runtime_instructions_url`, `behavior_spec_url`, or `timestamp_format` is missing, add the row from section 4.
 4. Leave every existing `Config`, `Items`, and `Events` value unchanged.
 
 A later schema bump SHOULD ship the same kind of note: which sheets and columns to add, which `Config` values to set, and a statement that existing evidence rows stay. The Bot that the person asked to install or upgrade MAY apply that note. It MUST refuse importer writes that need a sheet the workbook does not have yet, tell the person, and offer this upgrade.

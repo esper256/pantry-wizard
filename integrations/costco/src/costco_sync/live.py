@@ -9,6 +9,7 @@ price that does not follow the warehouse or an instant-savings promotion.
 
 from __future__ import annotations
 
+import sys
 import time
 
 from costco_sync.models import AuthError, PriceLookupResult, RangeRejected, SearchHit
@@ -63,16 +64,20 @@ class CostcoSource:
         if not item_numbers:
             return PriceLookupResult(ok=True, quotes=[])
         try:
-            products = self._price_summaries(item_numbers, warehouse_number)
+            fetched = self._price_summaries(item_numbers, warehouse_number)
         except AuthError:
             raise
         except Exception as exc:
             if _is_auth_failure(exc):
                 raise AuthError("Costco authentication failed") from exc
-            return PriceLookupResult(ok=False, quotes=[])
+            print(_summary_failure_text(exc, len(item_numbers)), file=sys.stderr)
+            return PriceLookupResult(ok=False, quotes=[], checked=[])
+        if not fetched.checked:
+            return PriceLookupResult(ok=False, quotes=[], checked=[])
         return PriceLookupResult(
             ok=True,
-            quotes=parse_summary_prices(products, warehouse_number),
+            quotes=parse_summary_prices(fetched.products, warehouse_number),
+            checked=fetched.checked,
         )
 
     def search_products(self, query: str, warehouse_number: str, limit: int = 5) -> list[SearchHit]:
@@ -114,8 +119,10 @@ class CostcoSource:
         warehouse_number: str,
         *,
         pause_seconds: float = PRICE_BATCH_PAUSE_SECONDS,
-        sleep=time.sleep,
-    ) -> list[dict]:
+        sleep=None,
+    ):
+        if sleep is None:
+            sleep = time.sleep
         from costco_mcp_server.auth import WCS_CLIENT_ID
         from curl_cffi import requests as curl_requests
 
@@ -125,36 +132,84 @@ class CostcoSource:
             "chrome131",
         )
         found: list[dict] = []
+        checked: list[str] = []
         offsets = range(0, len(item_numbers), _SUMMARY_BATCH)
         for index, offset in enumerate(offsets):
             if index and pause_seconds:
                 sleep(pause_seconds)
             batch = item_numbers[offset : offset + _SUMMARY_BATCH]
-            response = curl_requests.get(
-                _SUMMARY_URL,
-                params={
-                    "clientId": WCS_CLIENT_ID,
-                    "items": ",".join(batch),
-                    "whsNumber": warehouse_number,
-                    "locales": "en-us",
-                },
-                headers={
-                    "Accept": "application/json",
-                    "client-identifier": _SUMMARY_CLIENT_IDENTIFIER,
-                    "costco-env": "prd",
-                    "Origin": "https://www.costco.com",
-                    "Referer": "https://www.costco.com/",
-                },
-                impersonate=impersonate,
-                timeout=30,
+            products, failure = _summary_batch(
+                curl_requests.get, batch, warehouse_number, impersonate, WCS_CLIENT_ID
             )
-            if response.status_code != 200:
-                raise RuntimeError(f"Costco price summary returned HTTP {response.status_code}")
-            body = response.json()
-            if not isinstance(body, dict) or "productData" not in body:
-                raise RuntimeError("Costco price summary did not return productData")
-            found.extend(body.get("productData") or [])
-        return found
+            if failure is not None:
+                if pause_seconds:
+                    sleep(pause_seconds)
+                products, failure = _summary_batch(
+                    curl_requests.get, batch, warehouse_number, impersonate, WCS_CLIENT_ID
+                )
+            if failure is not None:
+                print(_summary_failure_text(failure, len(batch)), file=sys.stderr)
+                continue
+            found.extend(products)
+            checked.extend(batch)
+        return _SummaryFetch(found, checked)
+
+
+class _SummaryFetch:
+    def __init__(self, products: list[dict], checked: list[str]) -> None:
+        self.products = products
+        self.checked = checked
+
+
+def _summary_batch(get, batch: list[str], warehouse_number: str, impersonate: str, client_id: str):
+    try:
+        response = get(
+            _SUMMARY_URL,
+            params={
+                "clientId": client_id,
+                "items": ",".join(batch),
+                "whsNumber": warehouse_number,
+                "locales": "en-us",
+            },
+            headers={
+                "Accept": "application/json",
+                "client-identifier": _SUMMARY_CLIENT_IDENTIFIER,
+                "costco-env": "prd",
+                "Origin": "https://www.costco.com",
+                "Referer": "https://www.costco.com/",
+            },
+            impersonate=impersonate,
+            timeout=30,
+        )
+    except AuthError:
+        raise
+    except Exception as exc:
+        if _is_auth_failure(exc):
+            raise AuthError("Costco authentication failed") from exc
+        return [], exc
+    if response.status_code != 200:
+        failure = RuntimeError(f"Costco price summary returned HTTP {response.status_code}")
+        failure.status_code = response.status_code  # type: ignore[attr-defined]
+        if _is_auth_failure(failure):
+            raise AuthError("Costco authentication failed") from failure
+        return [], failure
+    try:
+        body = response.json()
+    except Exception as exc:
+        return [], exc
+    if not isinstance(body, dict) or "productData" not in body:
+        return [], RuntimeError("Costco price summary did not return productData")
+    products = body.get("productData") or []
+    if not isinstance(products, list):
+        return [], RuntimeError("Costco price summary did not return productData")
+    return products, None
+
+
+def _summary_failure_text(exc: BaseException, count: int) -> str:
+    text = str(exc).strip()
+    if text.startswith("Costco price summary"):
+        return f"{text} for {count} items."
+    return f"Costco price summary request failed for {count} items."
 
 
 def _is_auth_failure(exc: BaseException) -> bool:

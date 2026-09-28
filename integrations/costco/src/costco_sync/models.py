@@ -106,12 +106,15 @@ class PriceQuote:
     price_scope: str = ""
     product_name: str = ""
     explicit_instant_savings: bool = False
+    variable_weight: bool = False
 
 
 @dataclass
 class PriceLookupResult:
     ok: bool
     quotes: list[PriceQuote] = field(default_factory=list)
+    # None means every requested item number was in a successful response.
+    checked: list[str] | None = None
 
 
 class AuthError(RuntimeError):

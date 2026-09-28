@@ -196,10 +196,11 @@ def import_windows(
     )
     result = held.get("result")
     requested = held.get("requested") or []
-    if result is not None and result.ok and requested:
+    checked = requested if result is None or result.checked is None else result.checked
+    if result is not None and result.ok and checked:
         store.save_price_checks(
             advance_checks(
-                requested,
+                checked,
                 result.quotes,
                 store.price_checks(),
                 now,
