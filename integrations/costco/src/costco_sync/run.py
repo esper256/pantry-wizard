@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 from costco_sync.cadence import (
     advance_checks,
+    below_baseline_skus,
     fresh_purchase_skus,
     latest_paid_on,
     rows_by_sku,
@@ -31,7 +32,7 @@ from costco_sync.setupflow import (
     membership_fingerprint,
     preferred_receipts,
 )
-from costco_sync.store import StateStore
+from costco_sync.store import BELOW_BASELINE_RECONCILED, StateStore
 
 WAREHOUSE_LOOKBACK_DAYS = 180
 
@@ -159,6 +160,11 @@ def import_windows(
         for item in snapshot.items
         if item.purchase_intent.strip().casefold() == "buy"
     }
+    reconcile = (
+        set()
+        if store.has_flag(BELOW_BASELINE_RECONCILED)
+        else below_baseline_skus(retail_rows)
+    )
 
     def price_lookup(item_numbers: list[str], warehouse: str) -> PriceLookupResult:
         if not item_numbers or not warehouse:
@@ -171,6 +177,7 @@ def import_windows(
             now=now,
             today=_local_date(now, snapshot.household_timezone),
             buy_ids=buy_ids,
+            reconcile=reconcile,
         )
         if not due:
             return PriceLookupResult(ok=True, quotes=[])
@@ -208,6 +215,19 @@ def import_windows(
                 paid_on=latest_paid_on(retail_rows, kept, snapshot.known_source_refs),
             )
         )
+    missed = 0
+    status = ""
+    if result is not None and result.ok and result.checked is not None:
+        checked_set = set(result.checked)
+        missed = sum(1 for sku in requested if sku not in checked_set)
+        status = result.note
+    if not store.has_flag(BELOW_BASELINE_RECONCILED):
+        if not reconcile:
+            store.set_flag(BELOW_BASELINE_RECONCILED)
+        elif result is not None and result.ok:
+            seen = set(requested if result.checked is None else result.checked)
+            if all(sku in seen for sku in reconcile):
+                store.set_flag(BELOW_BASELINE_RECONCILED)
     summary = build_summary(
         snapshot,
         kept,
@@ -215,6 +235,8 @@ def import_windows(
         mutations,
         location,
         price_lookup_failed=mutations.get("price_lookup") == "failed",
+        price_lookup_missed=missed,
+        price_lookup_status=status,
     )
     mutations["summary"] = summary
     mutations["integration_upsert"] = integration_upsert(

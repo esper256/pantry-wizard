@@ -13,6 +13,8 @@ from pathlib import Path
 
 from costco_sync.cadence import PriceCheck
 
+BELOW_BASELINE_RECONCILED = "below_baseline_reconciled"
+
 
 class StateStore:
     def __init__(self, path: Path) -> None:
@@ -58,6 +60,14 @@ class StateStore:
                 item_number TEXT PRIMARY KEY,
                 next_check_at TEXT NOT NULL,
                 miss_count INTEGER NOT NULL
+            )
+            """
+        )
+        self._db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
             )
             """
         )
@@ -112,6 +122,17 @@ class StateStore:
         self._db.execute(
             "INSERT OR REPLACE INTO cursor (id, last_success_through) VALUES (1, ?)",
             (day.isoformat(),),
+        )
+        self._db.commit()
+
+    def has_flag(self, key: str) -> bool:
+        row = self._db.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+        return row is not None and row[0] == "1"
+
+    def set_flag(self, key: str) -> None:
+        self._db.execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES (?, '1')",
+            (key,),
         )
         self._db.commit()
 

@@ -72,12 +72,14 @@ class CostcoSource:
                 raise AuthError("Costco authentication failed") from exc
             print(_summary_failure_text(exc, len(item_numbers)), file=sys.stderr)
             return PriceLookupResult(ok=False, quotes=[], checked=[])
+        note = ", ".join(fetched.statuses)
         if not fetched.checked:
-            return PriceLookupResult(ok=False, quotes=[], checked=[])
+            return PriceLookupResult(ok=False, quotes=[], checked=[], note=note)
         return PriceLookupResult(
             ok=True,
             quotes=parse_summary_prices(fetched.products, warehouse_number),
             checked=fetched.checked,
+            note=note,
         )
 
     def search_products(self, query: str, warehouse_number: str, limit: int = 5) -> list[SearchHit]:
@@ -133,6 +135,7 @@ class CostcoSource:
         )
         found: list[dict] = []
         checked: list[str] = []
+        statuses: list[str] = []
         offsets = range(0, len(item_numbers), _SUMMARY_BATCH)
         for index, offset in enumerate(offsets):
             if index and pause_seconds:
@@ -149,16 +152,20 @@ class CostcoSource:
                 )
             if failure is not None:
                 print(_summary_failure_text(failure, len(batch)), file=sys.stderr)
+                status = _failure_status(failure)
+                if status and status not in statuses:
+                    statuses.append(status)
                 continue
             found.extend(products)
             checked.extend(batch)
-        return _SummaryFetch(found, checked)
+        return _SummaryFetch(found, checked, statuses)
 
 
 class _SummaryFetch:
-    def __init__(self, products: list[dict], checked: list[str]) -> None:
+    def __init__(self, products: list[dict], checked: list[str], statuses: list[str]) -> None:
         self.products = products
         self.checked = checked
+        self.statuses = statuses
 
 
 def _summary_batch(get, batch: list[str], warehouse_number: str, impersonate: str, client_id: str):
@@ -203,6 +210,13 @@ def _summary_batch(get, batch: list[str], warehouse_number: str, impersonate: st
     if not isinstance(products, list):
         return [], RuntimeError("Costco price summary did not return productData")
     return products, None
+
+
+def _failure_status(exc: BaseException) -> str:
+    code = _status_code(exc)
+    if code is None:
+        return ""
+    return f"HTTP {code}"
 
 
 def _summary_failure_text(exc: BaseException, count: int) -> str:

@@ -71,6 +71,16 @@ def latest_paid_on(
     return paid
 
 
+def below_baseline_skus(rows: dict[str, RetailRow]) -> set[str]:
+    """Rows whose only reduction is below_baseline, with no store promotion."""
+    found: set[str] = set()
+    for sku, row in rows.items():
+        kinds = {part.strip() for part in row.reduction_kind.split(",") if part.strip()}
+        if kinds == {"below_baseline"}:
+            found.add(sku)
+    return found
+
+
 def select_due(
     skus: list[str],
     *,
@@ -80,14 +90,17 @@ def select_due(
     now: datetime,
     today: date,
     buy_ids: set[str] | None = None,
+    reconcile: set[str] | None = None,
 ) -> list[str]:
     """Linked rows and promotions, then a first pass, then quiet rechecks."""
     moment = _aware(now)
     buying = buy_ids or set()
+    forced = reconcile or set()
     fresh_due: list[str] = []
     buy_due: list[str] = []
     linked_due: list[str] = []
     promo_due: list[str] = []
+    reconcile_due: list[str] = []
     never_due: list[str] = []
     quiet_due: list[str] = []
     seen: set[str] = set()
@@ -96,10 +109,12 @@ def select_due(
             continue
         seen.add(sku)
         row = rows.get(sku)
-        if sku not in fresh and not _is_due(sku, checks, moment):
+        if sku not in fresh and sku not in forced and not _is_due(sku, checks, moment):
             continue
         if sku in fresh:
             fresh_due.append(sku)
+        elif sku in forced:
+            reconcile_due.append(sku)
         elif _is_linked(row):
             if row is not None and row.item_id in buying:
                 buy_due.append(sku)
@@ -116,6 +131,7 @@ def select_due(
         + _by_sku(buy_due)
         + _by_sku(linked_due)
         + _by_sku(promo_due)
+        + _by_sku(reconcile_due)
     )
     if any(sku not in checks for sku in head) or never_due:
         ordered = head + _by_newest_purchase(never_due, rows)

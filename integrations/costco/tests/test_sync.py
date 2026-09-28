@@ -707,6 +707,7 @@ def test_a_failed_summary_batch_keeps_earlier_prices(monkeypatch, capsys):
     assert result.ok is True
     assert [quote.item_number for quote in result.quotes] == ["0"]
     assert result.checked == [str(index) for index in range(20)]
+    assert result.note == "HTTP 503"
     assert "HTTP 503 for 20 items." in capsys.readouterr().err
 
 

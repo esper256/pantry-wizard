@@ -115,6 +115,7 @@ class PriceLookupResult:
     quotes: list[PriceQuote] = field(default_factory=list)
     # None means every requested item number was in a successful response.
     checked: list[str] | None = None
+    note: str = ""
 
 
 class AuthError(RuntimeError):
