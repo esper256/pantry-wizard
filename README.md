@@ -1,8 +1,8 @@
 # Pantry Wizard
 
-An agent first shopping list that combines real understanding powered by Grok Bot with the durability and reliability imbued by the Google Sheet that backs it.
+An agent-first shopping list that combines real understanding powered by Grok Bot with the durability and reliability imbued by the Google Sheet that backs it.
 
-Say what happened in the kitchen. In plain language to the Grok Bot and bot records it in the Google Sheet. Other household members can do the same, and their bots coordinate behind the scenes using the shared Google Sheet.
+Say what happened in the kitchen, in plain language, to Grok Bot, and the bot records it in the Google Sheet. Other household members can do the same, and their bots coordinate behind the scenes using the shared Google Sheet.
 
 > “We’re out of milk.”
 >
@@ -10,17 +10,17 @@ Say what happened in the kitchen. In plain language to the Grok Bot and bot reco
 >
 > “We usually buy coffee at Safeway.”
 >
-> “Here's a photo of my grocery receipt.”
+> “Here’s a photo of my grocery receipt.”
 
-The sheet keeps track of what's been said. Using up a tube of toothpaste doesn't mean you are out, but it does mean you might check the cupboard before a shopping trip.
+The sheet keeps track of what’s been said. Using up a tube of toothpaste doesn’t mean you are out, but it does mean you might check the cupboard before a shopping trip.
 
 > “I’m heading to Safeway. What do I need to know?”
 
-The answer comes from the sheet: what was asked for, what is probably low, and what you already have, filtered by an intelligent Bot that understands your habits.
+The answer comes from the sheet: what was asked for, what is probably low, and what you already have, filtered by an intelligent bot that understands your habits.
 
-Costco is an optional integration. The bot can read one warehouse’s receipts and today’s prices including Costco’s promotions.
+Costco is an optional integration. The bot can read one warehouse’s receipts and today’s prices, including Costco’s promotions.
 
-> ”I'm going to Costco, what's on sale that I should stock up on?”
+> “I’m going to Costco, what’s on sale that I should stock up on?”
 
 Pantry Wizard is an instruction manual for bots to become the ultimate shopping list.
 
