@@ -46,47 +46,67 @@ Choose **File → Make a copy**. Name it something like “Pantry Wizard”. The
 
 Copy the URL of **your** sheet from the address bar. That is the URL you will give the bot. If you paste the template link, the bot will try to edit a sheet it should not change.
 
-### 2. Let Grok Bot into that Google account
+### 2. Make a Sheets-only OAuth token
 
-Grok Bot does not take a pasted OAuth token. You sign Google in through its plugins, with an account that can **edit** your copy.
+You create a token in your own Google Cloud project and store it on the bot. The token’s only scope is the Sheets API, so the bot calls `sheets.googleapis.com` for the spreadsheet id in your sheet URL.
 
-1. In Grok Bot, open **Plugins** on the sidebar. On the phone, tap your avatar, then **Plugins**.
-2. Add **Google Drive** and **Google Sheets**.
-3. When it says **Authorize** or **Authenticate**, finish the Google login in the browser. If it says **Waiting for authorization**, choose **Reopen**.
-4. Confirm both plugins are under **Installed**, and that neither says **Needs auth** or **Disconnected**.
+Do this while signed in as the Google account that owns your copy. That account must be able to edit the sheet. If you mint the token as someone else, share the copy with that account as **Editor**.
 
-Drive is how the bot finds the file. Sheets is how it edits cells. A sheet shared as **Viewer** stays view-only. The plugin cannot change sharing for you.
+1. In [Google Cloud Console](https://console.cloud.google.com/), create a project. Name it something like “Pantry Wizard”.
+2. Enable the **Google Sheets API** for that project. Do not enable the Drive API.
+3. Open **Google Auth platform → Audience**. Choose **External**. Add your own Google address under **Test users**.
+4. Open **Data access** and add only this scope: `https://www.googleapis.com/auth/spreadsheets`. That scope reads and writes spreadsheets the signed-in account can edit.
+5. Open **Clients → Create client**. Choose **Web application**. Under **Authorized redirect URIs** add `https://developers.google.com/oauthplayground`. Copy the client id and client secret.
+6. Open the [OAuth 2.0 Playground](https://developers.google.com/oauthplayground/). Click the gear and turn on **Use your own OAuth credentials**. Paste the client id and client secret.
+7. In the scope box, enter `https://www.googleapis.com/auth/spreadsheets`. Click **Authorize APIs**. Sign in as the account that can edit your copy. If Google says the app is unverified, choose **Advanced** and continue. It is your project.
+8. Click **Exchange authorization code for tokens**. Copy the `refresh_token`. The bot exchanges it for a short-lived access token each time it calls the API.
 
-Use the Google account that owns the copy. If Grok Bot is already connected to a different Google account, share your copy with that account as **Editor** (Share → add the address → Editor). Open the sheet once in that account and confirm you can type in a cell.
+While the consent screen stays in **Testing**, Google expires that refresh token after 7 days. For a bot that runs every day, set the audience to **In production**. You do not need Google to verify the app when the only user is you. You will still click through the unverified-app warning once.
 
-Plugin connections belong to the Grok Bot account you signed in with. Every bot on that account can use them.
+### 3. Store the token on the bot
 
-### 3. If Google sign-in fails
+Do not paste the refresh token, client secret, or client id into the chat.
+
+Open that Bot’s **Secrets** and add three secrets. The description is visible to the bot. The value is not. See [Store secrets securely](https://cursor.com/help/grok-bot/secrets).
+
+| Name | What it is |
+|---|---|
+| `GOOGLE_CLIENT_ID` | The OAuth client id |
+| `GOOGLE_CLIENT_SECRET` | The OAuth client secret |
+| `GOOGLE_REFRESH_TOKEN` | The refresh token from the playground |
+
+In each description, say that these are for the Google Sheets API only, and paste the URL of your sheet copy.
+
+### 4. If the Sheets API refuses the bot
 
 | What you see | What to do |
 |---|---|
-| **Needs auth** or **Disconnected** | Open the plugin and choose **Authorize** again. Installed does not mean signed in. |
-| **Waiting for authorization** | Choose **Reopen** so the browser tab comes back, then finish Google’s page. |
-| The connect card never appears | Re-add the plugin and finish the provider login. Steps: [Connect plugins](https://cursor.com/help/grok-bot/connect-plugins). |
-| **Disabled by team admin** | A Cursor team admin has to enable the plugin. That is separate from Google. |
-| Google says an admin must review **Grok** | A company Google account can block the sign-in. Grok Bot signs in to Google as Grok, not as Cursor. Ask the Google admin to trust the app named Grok (Security → Access and data control → API controls → App access control). A personal Gmail account does not need that. |
-| **Access blocked** | Trusting Grok in the Google Admin console is the fix. Switching browsers does not clear an admin block. |
-| The bot cannot find the sheet | Drive is missing, or the connected Google account cannot open your copy. Share the copy as Editor with that account, or reconnect Drive and Sheets as the account that owns it. |
-| The bot can read but not edit | The connected account is a Viewer. Change the share to Editor. |
+| `accessNotConfigured` or API has not been used | Enable the Google Sheets API on that Cloud project, wait a minute, and try again. |
+| `redirect_uri_mismatch` | The OAuth client is missing `https://developers.google.com/oauthplayground` as a redirect URI. Add it, then authorize again. |
+| `access_denied`, or Google will not show the consent screen | The app is in Testing and that Google account is not a test user. Add the address under Audience → Test users. |
+| Unverified app | Choose Advanced and continue. This is your Cloud project, used by you. |
+| `invalid_client` | The client id or client secret saved on the bot does not match the Cloud client. Replace the secret. You cannot read the old value back. |
+| `invalid_grant` | The refresh token was revoked, expired, or minted for a different client. Testing-mode tokens die after 7 days. Run the playground again and replace `GOOGLE_REFRESH_TOKEN`. Put the app in production if this keeps happening. |
+| `403` The caller does not have permission | The Google account that created the token cannot edit this sheet. Share your copy with that account as Editor, or mint a new token while signed in as the owner. |
+| The bot says it cannot see the secret | Tell it the environment variable names above. Ask it to request a missing one with the secure secret card. Do not paste the value into the message. |
 
-If authorize completes and the plugin still says disconnected, write to hi@cursor.com with the plugin name and the email on your Grok Bot account.
+Revoke a token you pasted into chat, or one you want to throw away, at [Google Account permissions](https://myaccount.google.com/permissions). Then mint a new refresh token.
 
-Do not paste a Google token, a Costco password, or a Costco refresh token into the chat.
+### 5. The prompt
 
-### 4. The prompt
-
-Start a new Grok Bot chat and send this. Replace the sheet URL with your copy.
+Start a new chat with that bot and send this. Replace the sheet URL with your copy.
 
 ```text
 Set up Pantry Wizard for this household.
 
 Our workbook is this Google Sheet, our copy, not the template:
 <paste the URL of your copy>
+
+Read and write it with the Google Sheets API. Do not use the Google Drive or Google Sheets plugins.
+The Bot secrets GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REFRESH_TOKEN are a token I created in my own Google Cloud project.
+Its only scope is https://www.googleapis.com/auth/spreadsheets.
+Refresh an access token at https://oauth2.googleapis.com/token, then call https://sheets.googleapis.com for the spreadsheet id in that URL.
+Do not print those secrets. If one is missing, ask for it with the secure secret card.
 
 Load and follow these runtime instructions before you change anything:
 https://raw.githubusercontent.com/esper256/shared-agentic-shopping-list/main/AGENT_RUNTIME_INSTRUCTIONS.md
@@ -103,7 +123,7 @@ When the instructions are actually loaded, say the activation line they require.
 Then tell me you can read the sheet, and quote the protocol_version you see in Config.
 ```
 
-### 5. How you know it is ready
+### 6. How you know it is ready
 
 The bot is ready when it says this exact line:
 
