@@ -1,36 +1,24 @@
 # Pantry Wizard
 
-One shared pantry for the household, kept in a Google Sheet, and talked to through Grok Bot.
+One shared pantry, kept in a Google Sheet and updated by talking to Grok Bot.
 
-You do not open an app and tick boxes. You say what happened in the kitchen. The bot writes that down in a way the next trip can use. A second person can ask their own bot the night before a shop, and both of them are looking at the same sheet.
+Say what happened in the kitchen. The bot records it in the sheet. Someone else can ask their own bot before a shop and see the same pantry.
 
-> “We’re out of Rice Krispies.”
+> “We’re out of milk.”
 >
 > “I opened the last toothpaste.”
 >
-> “We usually buy ketchup at FoodMaxx.”
->
-> “I bought two gallons of milk.”
+> “We usually buy coffee at Safeway.”
 
-“I used up a bottle of ketchup” does not silently put ketchup on the list. It means the bot should remember that you may want to check the pantry. The sheet stores what someone actually said. It does not pretend the house is a warehouse with a count on every jar.
+The sheet keeps those apart. Running out of milk is a request. Finishing the toothpaste is a reason to look. Safeway is where the coffee usually comes from. A briefing can act on that record without inventing a count for every item in the house.
 
-Before you leave, ask:
+> “I’m heading to Safeway. What do I need to know?”
 
-> “I’m heading to FoodMaxx. What do I need to know?”
+The answer comes from the sheet: what was asked for, what is probably low, and what you already have.
 
-You get a short briefing: what was asked for, what is probably low, what is worth a look before you go, and what to skip because the house already has plenty.
+Costco is optional. The bot can read one warehouse’s receipts and today’s prices, including Costco’s promotions. That login is only used to read.
 
-If you shop at Costco, the same bot can read your warehouse receipts and today’s warehouse prices. A sale is Costco’s own promotion, the “$4 off until October 5” kind, with an end date when Costco sent one. A price that is merely lower than what you paid last time is not called a sale. The bot never uses that login to buy, check out, or place an order.
-
-## What you get
-
-- A private copy of the household workbook: items, recent store prices, and a history of what was said.
-- A Grok Bot that reads and updates that workbook instead of trusting the last chat.
-- Trip briefings that use the sheet, not a guess from memory.
-- Optional Costco history for one warehouse you confirm. Other warehouses on the membership are skipped.
-- A daily Costco check that stays quiet unless sign-in failed or something you actually buy went on sale.
-
-The workbook is the memory. Chat is not. If the bot cannot open the sheet, it should say so and stop writing.
+If the bot cannot open the sheet, it says so and stops writing.
 
 ## Set up your own copy
 
@@ -113,7 +101,7 @@ The bot is ready when it says this exact line:
 
 It should also quote `protocol_version` from your sheet’s Config tab. After this setup that value should be `0.8`. If the sheet was older, the bot updates it without asking. That is expected.
 
-Try one ordinary sentence: “We’re out of Rice Krispies.” The bot should write that to the sheet, and you should be able to see the change. If it cannot open the sheet, it should say so and leave the sheet alone.
+Try one ordinary sentence: “We’re out of milk.” The bot should write that to the sheet, and you should be able to see the change. If it cannot open the sheet, it should say so and leave the sheet alone.
 
 It is not ready if it skips the activation line, answers the trip question from chat memory, or adds items you never mentioned.
 
