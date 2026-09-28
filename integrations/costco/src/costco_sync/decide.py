@@ -211,6 +211,7 @@ def build_mutations(
         if item is not None:
             _remember_alias(item, sku, alias_updates)
 
+    _link_known_skus(items, rows, touched)
     interest = _interest_skus(snapshot, receipts, search_links)
     lookup = price_lookup(sorted(interest), home) if interest and home else PriceLookupResult(ok=True, quotes=[])
     quotes = {quote.item_number: quote for quote in lookup.quotes}
@@ -233,6 +234,7 @@ def build_mutations(
             touched.add(key)
             _fold_purchase(row, line, receipt, samples, already_sampled, newly_sampled, names, quotes)
 
+    _link_known_skus(items, rows, touched)
     if lookup.ok and home:
         for sku in sorted(interest):
             quote = quotes.get(sku)
@@ -449,6 +451,18 @@ def _remember_alias(item: HouseholdItem, item_number: str, updates: dict[str, st
     else:
         item.aliases = token
     updates[item.item_id] = item.aliases
+
+
+def _link_known_skus(items: list[HouseholdItem], rows: dict, touched: set[str]) -> None:
+    """Fill item_id on rows whose SKU is already an alias. Do not invent a link."""
+    for key, row in rows.items():
+        if not row.retailer_sku:
+            continue
+        item = _match_item(items, row.retailer_sku, [row.retailer_name, row.receipt_name])
+        if item is None or row.item_id == item.item_id:
+            continue
+        row.item_id = item.item_id
+        touched.add(key)
 
 
 def _match_item(items: list[HouseholdItem], item_number: str, names: list[str]) -> HouseholdItem | None:

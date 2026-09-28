@@ -6,6 +6,7 @@ This state lives on the Grok Bot computer. It is not the shopping workbook.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from datetime import date
 from pathlib import Path
@@ -15,7 +16,9 @@ class StateStore:
     def __init__(self, path: Path) -> None:
         self.path = path
         path.parent.mkdir(parents=True, exist_ok=True)
+        os.chmod(path.parent, 0o700)
         self._db = sqlite3.connect(path)
+        os.chmod(path, 0o600)
         self._db.execute(
             """
             CREATE TABLE IF NOT EXISTS receipts (

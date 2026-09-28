@@ -28,13 +28,16 @@ Do this before any Costco command. Do not open Costco in the Bot browser to scra
 
 Say this to the person:
 
-> I can’t read the Costco refresh token from the browser. On your own computer, in Chrome, log in at https://www.costco.com. Open Developer Tools, choose Application, then Local Storage, then `https://signin.costco.com`. Find the key whose name contains `refreshtoken`, and paste only its `secret` value here. I will use it to read receipts and prices. I will not use it to buy anything.
+> I can’t read the Costco refresh token from the browser. On your own computer, in Chrome, log in at https://www.costco.com. Open Account, then Orders & Purchases, and let that page finish loading. The home page does not store the token. Then open Developer Tools, choose Application, then Local Storage, then `https://www.costco.com`. If the key is not there, also look under `https://signin.costco.com`. Find the key whose name contains `refreshtoken`. That name also contains the sign-in policy, such as `signup_signin_214`. Paste the key name and, separately, only its `secret` value. I will use the secret to read receipts and prices. I will not use it to buy anything.
 
-Do not ask them to paste a Costco password. When they paste the secret, save it and do not repeat it back:
+Do not ask them to paste a Costco password. Do not put the secret on a command line. Write it to a file that is mode `0600`, then:
 
 ```bash
-costco-sync auth --account personal --refresh-token <token>
+costco-sync auth --account personal --storage-key '<key name>' --refresh-token-stdin < /tmp/costco-refresh-token
+rm -f /tmp/costco-refresh-token
 ```
+
+The key name is not a secret. The secret is. Do not repeat the secret.
 
 The login is only for reading receipts and prices. Do not use the credentials, the refresh token, or a browser session to buy anything on the shopping list, check out, or place an order. Purchasing stays solely with the person. Do not put the token in the sheet, the mutation file, or a GitHub issue.
 
@@ -44,13 +47,15 @@ Then prove the token works:
 costco-sync warehouses
 ```
 
-Exit code 2 means the secret was rejected. Ask the person to copy the `secret` once more. If it fails again, file a redacted issue as described in [integrations/README.md](../README.md). Do not continue to a download.
+Exit code 2 means authentication failed. A token-endpoint `invalid_grant` or `AADB2C90088` is exit 2, not a rejected date range. The tool retries once against the policy Costco names in that error. If it still fails, ask the person to copy the `secret` once more from Orders & Purchases. If that also fails, file a redacted issue as described in [integrations/README.md](../README.md). Do not continue to a download.
 
 `warehouses` prints lines of `number name`, a tab, and a receipt count, busiest first. It does not write a mutation file.
 
 ## 4. Confirm one warehouse
 
 Show the list. Point at the busiest recent warehouse and ask whether that is the one they shop at. Wait for an answer.
+
+Use `costco-sync warehouses`, not the warehouse selected on costco.com. That setting is often an old house. If the site and the receipt list disagree, say so and ask. Receipts from other warehouses are counted as skipped in the summary. That is expected.
 
 Do not import until they confirm. Other warehouses in the account, including a previous city’s, are not household history.
 
@@ -67,7 +72,7 @@ Read the row back. If `owner` is not this Bot, stop. Someone else took the lease
 
 ## 5. Say whether this is a first download
 
-Export a snapshot JSON with `household_timezone`, `items`, `retail_memory`, `integrations`, and every `Events.source_ref` as `known_source_refs`.
+Export a snapshot JSON with `household_timezone`, `items`, `retail_memory`, `integrations`, and every `Events.source_ref` as `known_source_refs`. The `costco` row must include `location`, `membership_fingerprint`, `owner`, `lease_until`, `history_from`, and `history_through` when those cells exist. Then run `costco-sync check --snapshot household.json`. A plugin-less Bot applies the mutation file with `costco-sync apply`, which is the tested meaning of the Sheets write and does not call Google.
 
 If that snapshot has no `costco:` source ref and the row has no `history_from`, say: “This sheet has no Costco history. The first download from `<location>` is about to happen, and receipts from other warehouses will be skipped.” Wait for agreement.
 
@@ -96,6 +101,10 @@ Apply the mutation file with the Sheets plugin:
 5. Update the existing `costco` row from `integration_upsert`: `status`, `location`, `membership_fingerprint`, `history_from`, `history_through`, `last_sync_at`, and `last_summary`. Append that row only if it does not exist yet. Do not copy `owner` or `lease_until` from the file, and do not append a second `costco` row. The membership number itself is not in the file.
 
 Tell the user the `summary.text` line the command printed. Quote it. Do not invent receipt counts, dates, or item counts.
+
+A first import leaves `item_id` blank unless a household item already has the alias `costco:<itemNumber>` or its name exactly equals the receipt line. That is expected. Do not invent links. `search_products` returns nothing on purpose. A wrong SKU is worse than an unmatched row.
+
+After the apply, for items the household buys, wants, or already ties to Costco, show `RetailMemory` rows whose `receipt_name` or `retailer_name` might be that item. Ask the person to confirm. On a yes, set that item's alias to include `costco:<itemNumber>` and set `RetailMemory.item_id`. On a later sync, rows that already have that alias get `item_id` filled in. Old `Events` rows stay as they were. The trip question can still read an unlinked `RetailMemory` row for the store. The link is what connects that price to a household item.
 
 ## 8. Keep the lease and save the routine
 

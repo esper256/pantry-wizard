@@ -561,13 +561,15 @@ def test_auth_without_a_token_points_at_chrome_devtools(monkeypatch: pytest.Monk
         def status(self):
             return {"account": "personal", "has_refresh_token": False}
 
-    monkeypatch.setattr("costco_sync.live.CostcoSource", lambda account: Status())
+    monkeypatch.setattr("costco_sync.live.CostcoSource", lambda account, policy=None: Status())
     from costco_sync.cli import main
 
     code = main(["auth", "--account", "personal"])
     printed = capsys.readouterr().out
     assert code == 0
     assert "Developer Tools" in printed
-    assert "signin.costco.com" in printed
+    assert "Orders & Purchases" in printed
+    assert "www.costco.com" in printed
     assert "refreshtoken" in printed
+    assert "--refresh-token-stdin" in printed
     assert "costco-auth-browser" not in printed

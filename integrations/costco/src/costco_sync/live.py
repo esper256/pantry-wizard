@@ -30,10 +30,13 @@ query products($clientId: String!, $itemNumbers: [String], $locale: [String], $w
 
 
 class CostcoSource:
-    def __init__(self, account: str | None = None) -> None:
+    def __init__(self, account: str | None = None, *, policy: str | None = None) -> None:
         from costco_mcp_server.api import CostcoAPI
         from costco_mcp_server.auth import CostcoAuth
 
+        from costco_sync.b2c import install_policy
+
+        install_policy(policy)
         self._auth = CostcoAuth(account)
         self._api = CostcoAPI(self._auth)
 
@@ -46,6 +49,9 @@ class CostcoSource:
 
     def save_refresh_token(self, refresh_token: str) -> None:
         self._auth.save_refresh_token(refresh_token)
+        from costco_sync.privacy import tighten_private_files
+
+        tighten_private_files()
 
     def list_warehouse_receipts(self, start_date: str, end_date: str) -> dict:
         self._require_auth()
@@ -67,7 +73,9 @@ class CostcoSource:
             catalog = self._price_catalog(item_numbers, warehouse_number)
         except AuthError:
             raise
-        except Exception:
+        except Exception as exc:
+            if _is_auth_failure(exc):
+                raise AuthError("Costco authentication failed") from exc
             return PriceLookupResult(ok=False, quotes=[])
         return PriceLookupResult(ok=True, quotes=parse_catalog_prices(catalog))
 
@@ -85,6 +93,12 @@ class CostcoSource:
                 f"Costco account '{self._auth.account}' has no refresh token. "
                 "Run `costco-sync auth` and copy the refreshtoken secret from Chrome DevTools."
             )
+        try:
+            self._auth.get_bearer_token()
+        except AuthError:
+            raise
+        except Exception as exc:
+            raise AuthError("Costco authentication failed") from exc
 
     def _call(self, method, *args):
         try:
@@ -136,12 +150,24 @@ class CostcoSource:
 
 def _is_auth_failure(exc: BaseException) -> bool:
     text = str(exc).casefold()
+    response = getattr(exc, "response", None)
+    body = str(getattr(response, "text", "") or "").casefold()
+    url = str(getattr(response, "url", "") or "").casefold()
+    blob = text + "\n" + body
+    if "/oauth2/v2.0/token" in url or "invalid_grant" in blob or "aadb2c" in blob:
+        return True
     if "not authenticated" in text or "authentication failed" in text:
         return True
     return _status_code(exc) == 401
 
 
 def _is_range_rejected(exc: BaseException) -> bool:
+    if _is_auth_failure(exc):
+        return False
+    response = getattr(exc, "response", None)
+    url = str(getattr(response, "url", "") or "").casefold()
+    if "signin.costco.com" in url or "/oauth2/" in url:
+        return False
     return _status_code(exc) in {400, 422}
 
 
