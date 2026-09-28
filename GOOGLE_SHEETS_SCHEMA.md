@@ -2,7 +2,7 @@
 
 **Status:** Draft  
 **Schema Version:** 0.2  
-**Related protocol:** `AGENT_RUNTIME_INSTRUCTIONS.md` v0.6
+**Related protocol:** `AGENT_RUNTIME_INSTRUCTIONS.md` v0.7
 
 ## Purpose
 
@@ -138,9 +138,9 @@ Official references:
 |---|---|---|
 | `schema_version` | `0.2` | Shopping Database schema version |
 | `schema_url` | *(set during setup)* | Authoritative `GOOGLE_SHEETS_SCHEMA.md` |
-| `protocol_version` | `0.6` | Required agent runtime-instruction version |
+| `protocol_version` | `0.7` | Required agent runtime-instruction version |
 | `runtime_instructions_url` | *(set during setup)* | Authoritative `AGENT_RUNTIME_INSTRUCTIONS.md` |
-| `behavior_spec_version` | `0.6` | Informational behavior-spec version |
+| `behavior_spec_version` | `0.7` | Informational behavior-spec version |
 | `behavior_spec_url` | *(set during setup)* | Full behavior specification |
 | `household_timezone` | *(set during setup)* | IANA timezone such as `America/Los_Angeles` |
 | `currency` | *(set during setup)* | Currency such as `USD` |
@@ -158,7 +158,9 @@ Agents SHOULD load `schema_url` when `schema_version` is unfamiliar.
 
 `schema_url` and `runtime_instructions_url` MAY point at a mutable branch such as `main` during development. For releases, prefer immutable tag or commit URLs over `main`.
 
-Agents MUST NOT casually modify protocol or schema configuration. These values change only as part of explicit system administration or upgrade.
+Agents MUST NOT casually modify schema configuration. `schema_version` changes only through the upgrade note below.
+
+`protocol_version` and `behavior_spec_version` are different. When the agent has loaded a newer runtime instructions document or behavior spec, it sets those two Config values forward to the loaded versions. That is housekeeping. It does not ask the person and it does not wait for approval. It does not lower either value.
 
 Do not store frequently changing counters such as `next_event_id` in `Config`; shared counters create needless concurrency hazards.
 
@@ -674,7 +676,7 @@ A Bot MAY do this when the person asks to install a store integration, or when `
 
 1. Add a `RetailMemory` sheet and an `Integrations` sheet if they are missing. Row 1 is the header row in the order in section 13. Both sheets are otherwise empty.
 2. Format `last_paid_at`, `observed_at`, `reduction_ends_at`, `lease_until`, and `last_sync_at` as Plain text.
-3. Set `Config` `schema_version` to `0.2`, `protocol_version` to `0.6`, and `behavior_spec_version` to `0.6`. If `schema_url`, `runtime_instructions_url`, `behavior_spec_url`, or `timestamp_format` is missing, add the row from section 4.
+3. Set `Config` `schema_version` to `0.2`, `protocol_version` to `0.7`, and `behavior_spec_version` to `0.7`. If `schema_url`, `runtime_instructions_url`, `behavior_spec_url`, or `timestamp_format` is missing, add the row from section 4.
 4. Leave every existing `Config`, `Items`, and `Events` value unchanged.
 
 A later schema bump SHOULD ship the same kind of note: which sheets and columns to add, which `Config` values to set, and a statement that existing evidence rows stay. The Bot that the person asked to install or upgrade MAY apply that note. It MUST refuse importer writes that need a sheet the workbook does not have yet, tell the person, and offer this upgrade.

@@ -109,7 +109,7 @@ One shopping Bot runs this on its cloud computer. No public MCP server is involv
 1. Connect Google Drive and Google Sheets for the household account.
 2. Clone this repo under `/workspace` and install `integrations/costco`.
 3. Ask the person to open Account, then Orders & Purchases, then copy the `refreshtoken` secret from Chrome DevTools on their own computer, as [SETUP.md](SETUP.md) describes. Do not scrape it. Save it with `costco-sync auth --refresh-token-stdin`.
-4. Load runtime instructions v0.6 and follow [SETUP.md](SETUP.md). When Costco’s API fails, file a redacted issue as [integrations/README.md](../README.md) describes.
+4. Load runtime instructions v0.7 and follow [SETUP.md](SETUP.md). When Costco’s API fails, file a redacted issue as [integrations/README.md](../README.md) describes.
 5. Save a skill: reinstall the package, export the snapshot, run `costco-sync run`, apply the mutation file, renew the lease, and stop without writing if the command exits 2, 3, or 4.
 6. Schedule that skill daily only after the setup summary has been said. It should report an auth failure or a newly reduced staple, and stay quiet otherwise.
 
