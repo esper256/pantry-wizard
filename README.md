@@ -58,10 +58,10 @@ Take the JSON key as a file I attach, or through a secure field. Store it as a b
 Call https://sheets.googleapis.com for the spreadsheet id in the URL above. Do not use the Google Drive or Google Sheets plugins.
 
 Load and follow these runtime instructions before you change anything:
-https://raw.githubusercontent.com/esper256/shared-agentic-shopping-list/main/AGENT_RUNTIME_INSTRUCTIONS.md
+https://raw.githubusercontent.com/esper256/pantry-wizard/main/AGENT_RUNTIME_INSTRUCTIONS.md
 
 If the sheet layout is unfamiliar, also load:
-https://raw.githubusercontent.com/esper256/shared-agentic-shopping-list/main/GOOGLE_SHEETS_SCHEMA.md
+https://raw.githubusercontent.com/esper256/pantry-wizard/main/GOOGLE_SHEETS_SCHEMA.md
 
 Read Config, Items, RetailMemory, Integrations, and Events.
 If household_timezone or currency is blank, ask me once and then set them.

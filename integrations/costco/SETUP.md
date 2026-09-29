@@ -2,7 +2,7 @@
 
 This is the procedure for “install the Costco integration.” Follow it in order. Do not invent a warehouse, a date range, or a receipt count.
 
-Say: “I’ll follow the Costco setup from the shopping-list repo.”
+Say: “I’ll follow the Costco setup from the pantry-wizard repo.”
 
 ## 1. Confirm the workbook
 
@@ -14,7 +14,7 @@ If `membership_fingerprint` is already set, remember it. A later download that h
 
 ## 2. Install the CLI
 
-Clone this repo under `/workspace` if it is not already there. Then:
+Clone https://github.com/esper256/pantry-wizard under `/workspace` if it is not already there. Then:
 
 ```bash
 pip install -e /workspace/integrations/costco

@@ -33,11 +33,11 @@ Warehouse numbers, item numbers, dates, the command name, the exit code, and the
 Search open issues first. Comment on a matching one instead of opening a duplicate.
 
 ```bash
-gh issue list --repo esper256/shared-agentic-shopping-list --state open --search "costco: <same failure>"
-gh issue create --repo esper256/shared-agentic-shopping-list --title "costco: <one line>" --body-file /tmp/costco-issue.md
+gh issue list --repo esper256/pantry-wizard --state open --search "costco: <same failure>"
+gh issue create --repo esper256/pantry-wizard --title "costco: <one line>" --body-file /tmp/costco-issue.md
 ```
 
-Use these headings in the body: what the Bot ran, the exit code, the redacted output, and what the person was trying to do (setup or daily sync). If `gh` is not authenticated, show the person the redacted text and https://github.com/esper256/shared-agentic-shopping-list/issues/new and ask them to submit it. Do not invent an issue number.
+Use these headings in the body: what the Bot ran, the exit code, the redacted output, and what the person was trying to do (setup or daily sync). If `gh` is not authenticated, show the person the redacted text and https://github.com/esper256/pantry-wizard/issues/new and ask them to submit it. Do not invent an issue number.
 
 | Store | Setup |
 |---|---|
