@@ -468,3 +468,51 @@ Protect the household from avoidable stockouts without reflexively overbuying.
 Preserve capacity to take advantage of future deals.
 
 Above all, keep shared data truthful, recoverable, understandable, and useful to the next human or agent.
+
+---
+
+# Sheets API mechanics (starting advice, not rules)
+
+Practical notes from agents that have called the Google Sheets API directly from their own VM against the live household workbook. This is starting advice. It does not change the protocol, and it is not a hard requirement.
+
+Adapt as needed to keep the shared list correct and the project working. If you find a better approach, prefer it and consider updating this section.
+
+Household behavior stays in the sections above and in `AGENT_BEHAVIOR_SPEC.md`. Layout, quotas, and which sheets an operation reads or writes are in `GOOGLE_SHEETS_SCHEMA.md`.
+
+### Auth
+
+- Use a Google Cloud service account. Keep its JSON key on the VM, outside this repo, readable only by you. Never print or log the key.
+- Share the household's live copy with the service account's `client_email` as Editor. Do not share the template spreadsheet.
+- Python example (`google-api-python-client` and `google-auth`, in a venv):
+
+```python
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+
+creds = service_account.Credentials.from_service_account_file(
+    KEY_PATH,
+    scopes=["https://www.googleapis.com/auth/spreadsheets"],
+)
+values = build("sheets", "v4", credentials=creds).spreadsheets().values()
+```
+
+### Reads
+
+- Prefer one `values.batchGet` per operation. Pass the ranges the schema defines for the sheets that operation needs (schema section 8). Column spans follow that schema; current examples include `Config!A:Z`, `Items!A:Q`, and `Events!A:P`.
+- Find columns by their header names in row 1. Compute the column letter from that header's index when you write.
+- The API omits trailing empty cells, so a row can come back with fewer values than the header row. When you read, treat any missing index as an empty string in the list you hold in memory (for example, `row[i] if i < len(row) else ""`). This is about list length only; never add spaces or other filler to cell values.
+- For a large or scripted change, save a JSON snapshot of what you read before writing. It also serves as a backup.
+
+### Writes
+
+- New `Events` rows: `values.append(spreadsheetId=SHEET_ID, range="Events!A1", valueInputOption="RAW", insertDataOption="INSERT_ROWS", body={"values": rows})`, with each row built in header order.
+- `Items` changes: `values.batchUpdate` with `valueInputOption` `"RAW"` and one `data` entry per changed cell, for example `{"range": "Items!D12", "values": [["adequate"]]}`. The column letter comes from the header index above. Locate the row by `item_id` on a fresh read. Narrow updates are schema section 11.
+- Use `RAW` (not `USER_ENTERED`) so Sheets stores the text you send rather than reformatting it. Timestamp text is section 8; Plain-text columns are schema section 5.
+- After writing, `batchGet` the same ranges and compare cell by cell. Section 8 is still the sanity-check of the household result.
+
+### Practice
+
+- Keep snapshot, apply, and readback logic as reusable scripts on your VM rather than rewriting ad hoc snippets each time.
+- Re-read right before writing. A sheet row index from an earlier read can be stale (section 8).
+- Retry HTTP 429 and 5xx responses with backoff. Stay inside the per-minute quotas in schema section 3 by batching. One `batchGet`, one `values.append`, and one `values.batchUpdate` per household update is usually enough for the shape in schema section 8.
+- Build all new `Events` rows in memory and append them in a single call. Apply `Items` changes in a single `batchUpdate`. Do those writes in the event-first order in section 8.
