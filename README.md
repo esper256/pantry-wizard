@@ -1,8 +1,8 @@
 # Pantry Wizard
 
-An agent-first shopping list that combines real understanding powered by Grok Bot with the durability and reliability imbued by the Google Sheet that backs it.
+An agent-first shopping list that combines real understanding powered by Grok Bot, or ChatGPT Dots with the durability and reliability imbued by the Google Sheet that backs it.
 
-Say what happened in the kitchen, in plain language, to Grok Bot, and the bot records it in the Google Sheet. Other household members can do the same, and their bots coordinate behind the scenes using the shared Google Sheet.
+Say what happened in the kitchen, in plain language, to your Bot and immediately put your phone back in your pocket. Other household members can do the same. The bots coordinate behind the scenes using the shared Google Sheet, forgetting nothing.
 
 > “We’re out of milk.”
 >
@@ -12,7 +12,7 @@ Say what happened in the kitchen, in plain language, to Grok Bot, and the bot re
 >
 > “Here’s a photo of my grocery receipt.”
 
-The sheet keeps track of what’s been said. Using up a tube of toothpaste doesn’t mean you are out, but it does mean you might check the cupboard before a shopping trip.
+The sheet keeps track of what’s been said. Using up a tube of toothpaste doesn’t mean you are out, but it does mean you might check the cupboard before your next shopping trip.
 
 > “I’m heading to Safeway. What do I need to know?”
 
@@ -26,7 +26,7 @@ Pantry Wizard is an instruction manual for bots to become the ultimate shopping 
 
 ## Set up your own copy
 
-You need a Google account and [Grok Bot](https://cursor.com/download), signed in.
+You need a Google account and a subscription that includes access to a Bot (either Grok Bot, or ChatGPT Dots)
 
 ### 1. Copy the template sheet
 
