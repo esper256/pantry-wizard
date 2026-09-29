@@ -149,7 +149,7 @@ Official references:
 Example `schema_url`:
 
 ```text
-https://raw.githubusercontent.com/esper256/shared-agentic-shopping-list/main/GOOGLE_SHEETS_SCHEMA.md
+https://raw.githubusercontent.com/esper256/pantry-wizard/main/GOOGLE_SHEETS_SCHEMA.md
 ```
 
 Agents SHOULD load `schema_url` when `schema_version` is unfamiliar.
