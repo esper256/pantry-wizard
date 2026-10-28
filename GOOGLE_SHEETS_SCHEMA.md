@@ -331,12 +331,12 @@ A normal inventory question SHOULD ignore this sheet. A named-store briefing SHO
 | `reduction_ends_at` | When the current reduction ends, if known |
 | `price_scope` | `warehouse` or `online`. Blank when no current price was observed |
 | `observed_at` | When `current_price` and `availability` were observed together |
-| `availability` | `in_stock`, `out_of_stock`, or `unknown`. Blank when this row has not been checked since the column was added |
+| `availability` | `in_stock`, `low_stock`, `out_of_stock`, or `unknown`. Blank when this row has not been checked since the column was added |
 | `sale_scope` | `warehouse`, `online`, `both`, or `unknown` when `reduction_kind` contains `instant_savings`. Blank when there is no instant savings |
 
 `reduction_kind` blank means there is no current price reduction to act on. `instant_savings` is the retailer's own promotion. `below_baseline` alone means the price is under this household's usual non-sale price. It is not a sale. A sale does not change `Items.inventory_state`.
 
-`availability` is warehouse shelf stock for this row's location. `unknown` means a price check ran and the source did not report stock. A blank cell is the same for a briefing: the check has not been recorded yet. Neither value means the item is on the shelf. `in_stock` and `out_of_stock` are written only when the source says so.
+`availability` is warehouse shelf stock for this row's location, from the warehouse-mode service when that call answers. `low_stock` means the service reported low stock. `unknown` means a price check ran and the service did not report stock. A blank cell is the same for a briefing: the check has not been recorded yet. None of blank, `unknown`, `low_stock`, or `out_of_stock` means a normal in-stock shelf. `in_stock` and `out_of_stock` are written only when the service says so.
 
 `sale_scope` says where an instant-savings promotion redeems. `unknown` means the source reported a discount and did not say warehouse, online, or both. `price_scope=warehouse` is where the price was read. It is not `sale_scope`.
 

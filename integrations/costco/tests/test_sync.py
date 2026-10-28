@@ -21,6 +21,7 @@ from costco_sync.live import CostcoSource
 from costco_sync.models import AuthError, PriceLookupResult, PriceQuote, SearchHit
 from costco_sync.normalize import (
     barcodes_from_list,
+    observe_warehouse_item,
     parse_catalog_prices,
     parse_receipt_detail,
     parse_summary_prices,
@@ -533,7 +534,7 @@ def test_warehouse_summary_prices_record_the_sale_and_leave_an_unsale_price():
     assert guac.price_scope == "warehouse"
     assert guac.explicit_instant_savings
     assert guac.availability == "unknown"
-    assert guac.sale_scope == "unknown"
+    assert guac.sale_scope == ""
     assert guac.reduction_ends_at == "2026-10-25"
     assert guac.product_name.startswith("Wholly Guacamole")
     crackers = quotes["1542070"]
@@ -542,6 +543,7 @@ def test_warehouse_summary_prices_record_the_sale_and_leave_an_unsale_price():
     assert crackers.price_scope == "warehouse"
     assert crackers.availability == "unknown"
     assert crackers.sale_scope == ""
+    assert crackers.warehouse_checked is False
     assert not crackers.explicit_instant_savings
     assert crackers.reduction_ends_at == ""
 
@@ -718,6 +720,7 @@ def test_a_failed_summary_batch_keeps_earlier_prices(monkeypatch, capsys):
         return Response(503, [])
 
     monkeypatch.setattr("curl_cffi.requests.get", get)
+    monkeypatch.setattr(source, "_attach_warehouse", lambda quotes, checked, warehouse: None)
     result = source.lookup_prices([str(index) for index in range(40)], "663")
     assert calls == ["0", "20", "20"]
     assert pauses == [20, 20]
@@ -894,7 +897,7 @@ def test_summary_does_not_invent_stock_or_a_warehouse_sale():
     assert friskies.explicit_instant_savings
     assert friskies.price_scope == "warehouse"
     assert friskies.availability == "unknown"
-    assert friskies.sale_scope == "unknown"
+    assert friskies.sale_scope == ""
 
     def prices(skus, warehouse):
         del skus, warehouse
@@ -1122,3 +1125,234 @@ def test_schema_03_appends_retail_columns_and_does_not_reorder():
 )
 def test_warehouse_sale_label(availability, reduction_kind, sale_scope, label):
     assert warehouse_sale_label(availability, reduction_kind, sale_scope) == label
+
+
+def test_concord_warehouse_mode_sets_stock_and_sale_scope():
+    """Warehouse-mode responses for warehouse 663 on 2026-10-28.
+
+    Brisket 1948871 is out of stock at $23.99 with no temporary price discount.
+    Friskies 2035569 is in stock at $33.99, $9 off through 2026-11-15.
+    """
+    payload = json.loads((Path(__file__).parent / "fixtures" / "summary_stock_663.json").read_text())
+    quotes = {
+        quote.item_number: quote
+        for quote in parse_summary_prices(payload["productData"], "663")
+    }
+    warehouse = {
+        "1948871": {
+            "itemNumber": "1948871",
+            "sellPrice": "23.99",
+            "originalSellPrice": "23.99",
+            "inventoryStatus": "out of stock",
+            "inventoryOnHand": "",
+        },
+        "2035569": {
+            "itemNumber": "2035569",
+            "sellPrice": "33.99",
+            "originalSellPrice": "42.99",
+            "inventoryStatus": "in stock",
+            "activeTpdAmount": "9",
+            "activeTpdEndDate": "2026-11-15",
+        },
+        "1": {
+            "itemNumber": "1",
+            "sellPrice": "7.05",
+            "originalSellPrice": "7.05",
+            "inventoryStatus": "in stock",
+        },
+    }
+    for sku, item in warehouse.items():
+        observe_warehouse_item(quotes[sku], item)
+    assert quotes["1948871"].availability == "out_of_stock"
+    assert quotes["1948871"].warehouse_on_sale is False
+    assert quotes["2035569"].availability == "in_stock"
+    assert quotes["2035569"].warehouse_on_sale is True
+    assert quotes["1"].availability == "in_stock"
+    assert quotes["1"].warehouse_on_sale is False
+
+    def prices(skus, warehouse_number):
+        del skus, warehouse_number
+        return PriceLookupResult(ok=True, quotes=list(quotes.values()))
+
+    mutations, _, _ = build_mutations(
+        _snapshot(
+            preferred_costco_warehouse="663 Concord",
+            retail_memory=[
+                {
+                    "retail_key": f"costco:663:{sku}",
+                    "store": "Costco",
+                    "location": "663 Concord",
+                    "retailer_sku": sku,
+                    "current_price": "",
+                }
+                for sku in ("1948871", "2035569", "1")
+            ],
+        ),
+        [],
+        names={},
+        price_lookup=prices,
+        search=_no_search,
+        baseline_samples={},
+        already_sampled=set(),
+        now=NOW,
+    )
+    by_key = {row["retail_key"]: row for row in mutations["retail_memory_upserts"]}
+    brisket = by_key["costco:663:1948871"]
+    friskies = by_key["costco:663:2035569"]
+    milk = by_key["costco:663:1"]
+    assert brisket["availability"] == "out_of_stock"
+    assert brisket["sale_scope"] == ""
+    assert brisket["reduction_kind"] == ""
+    assert friskies["availability"] == "in_stock"
+    assert friskies["sale_scope"] == "both"
+    assert friskies["reduction_kind"] == "instant_savings"
+    assert friskies["reduction_ends_at"] == "2026-11-15"
+    assert milk["availability"] == "in_stock"
+    assert milk["sale_scope"] == ""
+    assert warehouse_sale_label(friskies["availability"], friskies["reduction_kind"], friskies["sale_scope"]) == "confirmed"
+    assert warehouse_sale_label(brisket["availability"], brisket["reduction_kind"], brisket["sale_scope"]) == "unconfirmed"
+
+
+def test_warehouse_sale_without_a_catalog_discount_is_warehouse_only():
+    quote = PriceQuote(
+        item_number="720",
+        current_price=Decimal("21.69"),
+        regular_price=Decimal("21.69"),
+        price_scope="warehouse",
+    )
+    observe_warehouse_item(
+        quote,
+        {
+            "itemNumber": "720",
+            "sellPrice": "21.69",
+            "originalSellPrice": "28.69",
+            "inventoryStatus": "low stock",
+            "activeTpdAmount": "7",
+            "activeTpdEndDate": "2026-11-15",
+        },
+    )
+    assert quote.availability == "low_stock"
+    assert quote.warehouse_on_sale is True
+    assert quote.reduction_ends_at == "2026-11-15"
+
+    def prices(skus, warehouse):
+        del skus, warehouse
+        return PriceLookupResult(ok=True, quotes=[quote])
+
+    mutations, _, _ = build_mutations(
+        _snapshot(
+            preferred_costco_warehouse="663 Concord",
+            retail_memory=[
+                {
+                    "retail_key": "costco:663:720",
+                    "store": "Costco",
+                    "location": "663 Concord",
+                    "retailer_sku": "720",
+                }
+            ],
+        ),
+        [],
+        names={},
+        price_lookup=prices,
+        search=_no_search,
+        baseline_samples={},
+        already_sampled=set(),
+        now=NOW,
+    )
+    row = mutations["retail_memory_upserts"][0]
+    assert row["reduction_kind"] == "instant_savings"
+    assert row["sale_scope"] == "warehouse"
+    assert row["availability"] == "low_stock"
+    assert warehouse_sale_label(row["availability"], row["reduction_kind"], row["sale_scope"]) == "unconfirmed"
+
+
+def test_catalog_discount_without_a_warehouse_discount_is_online():
+    quote = PriceQuote(
+        item_number="2035569",
+        current_price=Decimal("33.99"),
+        regular_price=Decimal("42.99"),
+        explicit_instant_savings=True,
+        price_scope="warehouse",
+        reduction_ends_at="2026-11-15",
+    )
+    observe_warehouse_item(
+        quote,
+        {
+            "itemNumber": "2035569",
+            "sellPrice": "42.99",
+            "originalSellPrice": "42.99",
+            "inventoryStatus": "in stock",
+        },
+    )
+
+    def prices(skus, warehouse):
+        del skus, warehouse
+        return PriceLookupResult(ok=True, quotes=[quote])
+
+    mutations, _, _ = build_mutations(
+        _snapshot(
+            preferred_costco_warehouse="663 Concord",
+            retail_memory=[
+                {
+                    "retail_key": "costco:663:2035569",
+                    "store": "Costco",
+                    "location": "663 Concord",
+                    "retailer_sku": "2035569",
+                    "current_price": "42.99",
+                    "regular_price": "42.99",
+                }
+            ],
+        ),
+        [],
+        names={},
+        price_lookup=prices,
+        search=_no_search,
+        baseline_samples={},
+        already_sampled=set(),
+        now=NOW,
+    )
+    row = mutations["retail_memory_upserts"][0]
+    assert row["sale_scope"] == "online"
+    assert row["availability"] == "in_stock"
+    assert warehouse_sale_label(row["availability"], row["reduction_kind"], row["sale_scope"]) == "unconfirmed"
+
+
+def test_warehouse_lookup_pauses_and_stops_when_refused(capsys):
+    source = CostcoSource.__new__(CostcoSource)
+    pauses: list[float] = []
+    calls: list[str] = []
+
+    def post(item_number, warehouse_number):
+        del warehouse_number
+        calls.append(item_number)
+        if item_number == "2":
+            return None, 429
+        return {"itemNumber": item_number, "inventoryStatus": "in stock", "sellPrice": "1", "originalSellPrice": "1"}, None
+
+    quotes = [
+        PriceQuote(item_number="1", current_price=Decimal("1"), regular_price=Decimal("1")),
+        PriceQuote(item_number="2", current_price=Decimal("1"), regular_price=Decimal("1")),
+        PriceQuote(item_number="3", current_price=Decimal("1"), regular_price=Decimal("1")),
+    ]
+    source._attach_warehouse(quotes, ["1", "2", "3"], "663", sleep=pauses.append, post=post)
+    assert calls == ["1", "2"]
+    assert pauses == [1]
+    assert quotes[0].warehouse_checked is True
+    assert quotes[0].availability == "in_stock"
+    assert quotes[1].warehouse_checked is False
+    assert quotes[2].warehouse_checked is False
+    assert "HTTP 429" in capsys.readouterr().err
+
+
+def test_warehouse_lookup_ignores_a_different_item_number():
+    quote = PriceQuote(item_number="1948871", current_price=Decimal("23.99"), regular_price=Decimal("23.99"))
+    source = CostcoSource.__new__(CostcoSource)
+
+    def post(item_number, warehouse_number):
+        del item_number, warehouse_number
+        return None, None
+
+    source._attach_warehouse([quote], ["1948871"], "663", pause_seconds=0, post=post)
+    assert quote.warehouse_checked is True
+    assert quote.availability == "unknown"
+    assert quote.warehouse_on_sale is False

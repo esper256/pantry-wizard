@@ -84,7 +84,7 @@ RETAIL_COLUMNS_ADDED_IN_0_3 = (
     "sale_scope",
 )
 
-_AVAILABILITY_VALUES = {"in_stock", "out_of_stock", "unknown"}
+_AVAILABILITY_VALUES = {"in_stock", "low_stock", "out_of_stock", "unknown"}
 _SALE_SCOPE_VALUES = {"warehouse", "online", "both"}
 
 EVENT_COLUMNS = (
@@ -411,8 +411,9 @@ def _apply_quote(row: RetailRow, quote: PriceQuote, samples: list[str], observed
 def warehouse_sale_label(availability: str, reduction_kind: str, sale_scope: str) -> str:
     """``confirmed`` only for an in-stock instant savings that applies in the warehouse.
 
-    Anything else is ``unconfirmed``: out of stock, unknown or blank stock,
-    an online-only or unknown sale channel, or a price that is not instant savings.
+    ``low_stock``, ``out_of_stock``, unknown or blank stock, an online-only or
+    unknown sale channel, and a price that is not instant savings are
+    ``unconfirmed``.
     """
     kinds = {part.strip() for part in (reduction_kind or "").split(",") if part.strip()}
     if (
@@ -435,19 +436,37 @@ def _observed_sale_scope(quote: PriceQuote, reduction_kind: str) -> str:
     kinds = {part.strip() for part in (reduction_kind or "").split(",") if part.strip()}
     if "instant_savings" not in kinds:
         return ""
-    value = (quote.sale_scope or "").strip()
-    if value in _SALE_SCOPE_VALUES:
-        return value
+    preset = (quote.sale_scope or "").strip()
+    if preset in _SALE_SCOPE_VALUES:
+        return preset
+    if not quote.warehouse_checked:
+        return "unknown"
+    catalog = _catalog_instant_savings(quote)
+    if quote.warehouse_on_sale and catalog:
+        return "both"
+    if quote.warehouse_on_sale:
+        return "warehouse"
+    if catalog:
+        return "online"
     return "unknown"
+
+
+def _catalog_instant_savings(quote: PriceQuote) -> bool:
+    if quote.explicit_instant_savings:
+        return True
+    current = quote.current_price
+    regular = quote.regular_price
+    return (
+        current is not None
+        and regular is not None
+        and regular - current >= REDUCTION_THRESHOLD
+    )
 
 
 def _reduction_kind(quote: PriceQuote, baseline: Decimal | None) -> str:
     kinds: list[str] = []
     current = quote.current_price
-    regular = quote.regular_price
-    if quote.explicit_instant_savings or (
-        current is not None and regular is not None and regular - current >= REDUCTION_THRESHOLD
-    ):
+    if quote.warehouse_on_sale or _catalog_instant_savings(quote):
         kinds.append("instant_savings")
     if (
         not quote.variable_weight

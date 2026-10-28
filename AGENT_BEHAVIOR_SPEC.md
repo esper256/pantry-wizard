@@ -291,7 +291,7 @@ Examples include:
 - a typical non-sale price;
 - the current sell price and whether it is reduced;
 - when that current price was observed;
-- warehouse availability when the source reported it (`in_stock`, `out_of_stock`, or `unknown`);
+- warehouse availability when the source reported it (`in_stock`, `low_stock`, `out_of_stock`, or `unknown`);
 - whether an instant-savings promotion applies in the warehouse, online, both, or is unknown;
 - which household item the SKU matches, when the match is known.
 
@@ -1307,7 +1307,7 @@ It SHOULD NOT invent exact optimization scores, savings probabilities, consumpti
 
 `reduction_kind` containing `instant_savings` is the retailer's promotion. It is a confirmed warehouse deal only when `RetailMemory.availability` is `in_stock` and `sale_scope` is `warehouse` or `both`.
 
-`sale_scope=online` is not a warehouse sale. `sale_scope=unknown`, a blank `sale_scope`, `availability` of `out_of_stock` or `unknown`, and a blank `availability` are not confirmation either. `price_scope=warehouse` says where the price was read. It does not say the item is on the shelf or that the discount redeems in the warehouse.
+`sale_scope=online` is not a warehouse sale. `sale_scope=unknown`, a blank `sale_scope`, `availability` of `low_stock`, `out_of_stock`, or `unknown`, and a blank `availability` are not confirmation either. `low_stock` is recorded when the warehouse service says so, and it is not a promise the item is on the shelf. `price_scope=warehouse` says where the price was read. It does not say the item is on the shelf or that the discount redeems in the warehouse.
 
 A briefing MUST label every other warehouse-stock or warehouse-sale claim from `RetailMemory` as unconfirmed. `below_baseline` alone remains not a sale (`TRIP-02`).
 
