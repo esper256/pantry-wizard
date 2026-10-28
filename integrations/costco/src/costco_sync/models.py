@@ -35,6 +35,8 @@ class RetailRow:
     reduction_ends_at: str = ""
     price_scope: str = ""
     observed_at: str = ""
+    availability: str = ""
+    sale_scope: str = ""
 
 
 @dataclass
@@ -107,6 +109,14 @@ class PriceQuote:
     product_name: str = ""
     explicit_instant_savings: bool = False
     variable_weight: bool = False
+    # in_stock, low_stock, out_of_stock, or unknown. Blank means this quote did not observe stock.
+    availability: str = ""
+    # warehouse, online, both, or unknown. Blank means this quote is not instant savings.
+    sale_scope: str = ""
+    # True after the warehouse-mode call answered for this item number, including a miss.
+    warehouse_checked: bool = False
+    # The warehouse-mode service reported an in-warehouse temporary price discount.
+    warehouse_on_sale: bool = False
 
 
 @dataclass

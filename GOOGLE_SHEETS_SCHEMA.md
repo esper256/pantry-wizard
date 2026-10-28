@@ -1,7 +1,7 @@
 # Google Sheets Shopping Database Schema
 
 **Status:** Draft  
-**Schema Version:** 0.2  
+**Schema Version:** 0.3  
 **Related protocol:** `AGENT_RUNTIME_INSTRUCTIONS.md` v0.8
 
 ## Purpose
@@ -136,7 +136,7 @@ Official references:
 
 | `key` | Initial `value` | `description` |
 |---|---|---|
-| `schema_version` | `0.2` | Shopping Database schema version |
+| `schema_version` | `0.3` | Shopping Database schema version |
 | `schema_url` | *(set during setup)* | Authoritative `GOOGLE_SHEETS_SCHEMA.md` |
 | `protocol_version` | `0.8` | Required agent runtime-instruction version |
 | `runtime_instructions_url` | *(set during setup)* | Authoritative `AGENT_RUNTIME_INSTRUCTIONS.md` |
@@ -330,13 +330,21 @@ A normal inventory question SHOULD ignore this sheet. A named-store briefing SHO
 | `reduction_kind` | Blank, `instant_savings`, `below_baseline`, or `instant_savings,below_baseline` |
 | `reduction_ends_at` | When the current reduction ends, if known |
 | `price_scope` | `warehouse` or `online`. Blank when no current price was observed |
-| `observed_at` | When `current_price` was observed |
+| `observed_at` | When `current_price` and `availability` were observed together |
+| `availability` | `in_stock`, `low_stock`, `out_of_stock`, or `unknown`. Blank when this row has not been checked since the column was added |
+| `sale_scope` | `warehouse`, `online`, `both`, or `unknown` when `reduction_kind` contains `instant_savings`. Blank when there is no instant savings |
 
 `reduction_kind` blank means there is no current price reduction to act on. `instant_savings` is the retailer's own promotion. `below_baseline` alone means the price is under this household's usual non-sale price. It is not a sale. A sale does not change `Items.inventory_state`.
 
+`availability` is warehouse shelf stock for this row's location, from the warehouse-mode service when that call answers. `low_stock` means the service reported low stock. `unknown` means a price check ran and the service did not report stock. A blank cell is the same for a briefing: the check has not been recorded yet. None of blank, `unknown`, `low_stock`, or `out_of_stock` means a normal in-stock shelf. `in_stock` and `out_of_stock` are written only when the service says so.
+
+`sale_scope` says where an instant-savings promotion redeems. `unknown` means the source reported a discount and did not say warehouse, online, or both. `price_scope=warehouse` is where the price was read. It is not `sale_scope`.
+
+A named-store briefing may call a deal confirmed only when `availability` is `in_stock`, `reduction_kind` contains `instant_savings`, and `sale_scope` is `warehouse` or `both`. Label every other warehouse-stock or warehouse-sale claim from this sheet `unconfirmed`.
+
 Importers MUST NOT copy payment details, membership numbers, or credentials into this sheet.
 
-Price observations are replaceable. Re-running an import updates the current-price columns in place. A price observation MUST NOT append an `Events` row. The current reduction is `reduction_kind` together with `current_price` and `regular_price`. When a later observation is not a reduction, clear `reduction_kind` and `reduction_ends_at` in place and keep the latest `current_price`.
+Price observations are replaceable. Re-running an import updates the current-price columns in place. A price observation MUST NOT append an `Events` row. The current reduction is `reduction_kind` together with `current_price` and `regular_price`. When a later observation is not a reduction, clear `reduction_kind`, `reduction_ends_at`, and `sale_scope` in place and keep the latest `current_price`. Leave `availability` at the value from that same observation.
 
 # 6B. `Integrations` Sheet
 
@@ -637,7 +645,9 @@ Shared Agentic Shopping Database
 │   ├── reduction_kind
 │   ├── reduction_ends_at
 │   ├── price_scope
-│   └── observed_at
+│   ├── observed_at
+│   ├── availability
+│   └── sale_scope
 │
 └── Events
     ├── event_id
@@ -678,6 +688,15 @@ A Bot MAY do this when the person asks to install a store integration, or when `
 2. Format `last_paid_at`, `observed_at`, `reduction_ends_at`, `lease_until`, and `last_sync_at` as Plain text.
 3. Set `Config` `schema_version` to `0.2`, `protocol_version` to `0.8`, and `behavior_spec_version` to `0.8`. If `schema_url`, `runtime_instructions_url`, `behavior_spec_url`, or `timestamp_format` is missing, add the row from section 4.
 4. Leave every existing `Config`, `Items`, and `Events` value unchanged.
+5. Apply the schema 0.3 upgrade below. A workbook that has finished both upgrades is schema 0.3.
+
+## Upgrading a schema 0.2 workbook
+
+A Bot MAY do this when `schema_version` is `0.2`, or when it is older and the 0.1 upgrade above has already added `RetailMemory`. It MUST NOT rewrite existing `RetailMemory` values. It MUST NOT reorder columns. It MUST NOT delete sheets.
+
+1. On `RetailMemory`, append `availability` and then `sale_scope` to row 1 if either header is missing. Add a missing header after the last header already in that row. Do not insert it between older columns.
+2. Leave every existing data cell as it is. The new cells stay blank. A blank `availability` is not `in_stock`.
+3. Set `Config` `schema_version` to `0.3`. Leave `protocol_version` and `behavior_spec_version` for the housekeeping rule in section 4.
 
 A later schema bump SHOULD ship the same kind of note: which sheets and columns to add, which `Config` values to set, and a statement that existing evidence rows stay. The Bot that the person asked to install or upgrade MAY apply that note. It MUST refuse importer writes that need a sheet the workbook does not have yet, tell the person, and offer this upgrade.
 

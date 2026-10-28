@@ -113,6 +113,7 @@ def parse_catalog_prices(catalog_items: list[dict]) -> list:
                 price_scope=scope,
                 product_name=name,
                 explicit_instant_savings=explicit,
+                availability="unknown",
             )
         )
     return quotes
@@ -121,9 +122,20 @@ def parse_catalog_prices(catalog_items: list[dict]) -> list:
 def parse_summary_prices(products: list[dict], warehouse_number: str) -> list:
     """Read warehouse prices from the product summary API.
 
-    ``displayPrice.onlinePrice`` is the warehouse price before a promotion.
-    ``displayPrice.deliveredPrice`` is what a member pays after that promotion.
-    Both follow ``whsNumber``. A promotion of at least ten cents is instant savings.
+    ``displayPrice.onlinePrice`` is the price before a promotion for ``whsNumber``.
+    ``displayPrice.deliveredPrice`` is the price after that promotion. A promotion
+    of at least ten cents is instant savings.
+
+    The same payload does not say whether the item is on the shelf. ``isBuyable``
+    and ``isPublished`` describe costco.com, and ``programTypes`` includes
+    ``InWarehouse`` for warehouse programs such as milk that are not buyable
+    online. None of those is a stock count. Availability is ``unknown``.
+
+    A promotion keyed by ``warehouseNumber`` has an amount and dates and no
+    channel. ``programTypes`` containing both ``InWarehouse`` and a delivery
+    type does not mean the discount redeems in the warehouse. Sale scope is
+    left blank here and filled from the warehouse-mode service when that call
+    answers.
     """
     from costco_sync.models import PriceQuote
 
@@ -159,6 +171,7 @@ def parse_summary_prices(products: list[dict], warehouse_number: str) -> list:
                 product_name=_summary_name(product),
                 explicit_instant_savings=explicit,
                 variable_weight=_variable_weight(product),
+                availability="unknown",
             )
         )
     return quotes
@@ -223,6 +236,41 @@ def _cents(value: object) -> Decimal | None:
     if parsed is None:
         return None
     return parsed.quantize(CENT, rounding=ROUND_HALF_UP)
+
+
+_WAREHOUSE_STATUS = {
+    "in stock": "in_stock",
+    "low stock": "low_stock",
+    "out of stock": "out_of_stock",
+}
+
+
+def warehouse_availability(value: object) -> str:
+    """Map the warehouse-mode ``inventoryStatus`` phrase. Anything else is unknown."""
+    text = " ".join(str(value or "").replace("_", " ").replace("-", " ").casefold().split())
+    return _WAREHOUSE_STATUS.get(text, "unknown")
+
+
+def observe_warehouse_item(quote, item: dict | None) -> None:
+    """Record shelf stock and an in-warehouse temporary price discount.
+
+    ``item`` is one ``items[]`` element from the warehouse-mode service, or
+    None when that service answered and did not return this item number.
+    """
+    quote.warehouse_checked = True
+    if not isinstance(item, dict):
+        quote.availability = "unknown"
+        quote.warehouse_on_sale = False
+        return
+    quote.availability = warehouse_availability(item.get("inventoryStatus"))
+    amount = _cents(item.get("activeTpdAmount")) or Decimal(0)
+    sell = _cents(item.get("sellPrice"))
+    original = _cents(item.get("originalSellPrice"))
+    gap = original - sell if original is not None and sell is not None else Decimal(0)
+    quote.warehouse_on_sale = amount >= REDUCTION_THRESHOLD or gap >= REDUCTION_THRESHOLD
+    end = str(item.get("activeTpdEndDate") or "").strip()
+    if quote.warehouse_on_sale and end and not quote.reduction_ends_at:
+        quote.reduction_ends_at = end[:10]
 
 
 def _pacific_date(value: str) -> str:

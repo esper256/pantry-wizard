@@ -291,6 +291,8 @@ Examples include:
 - a typical non-sale price;
 - the current sell price and whether it is reduced;
 - when that current price was observed;
+- warehouse availability when the source reported it (`in_stock`, `low_stock`, `out_of_stock`, or `unknown`);
+- whether an instant-savings promotion applies in the warehouse, online, both, or is unknown;
 - which household item the SKU matches, when the match is known.
 
 `RetailMemory` is not inventory and it is not a promotion ledger. Current prices are updated in place. A named-store briefing reads it. Ordinary inventory questions do not.
@@ -352,7 +354,7 @@ It MAY additionally contain:
 
 ```text
 behavior_spec_version       0.8
-schema_version              0.2
+schema_version              0.3
 schema_url                  <authoritative schema document>
 ```
 
@@ -1301,6 +1303,16 @@ It SHOULD NOT invent exact optimization scores, savings probabilities, consumpti
 
 ---
 
+## DEAL-06 — A warehouse sale is confirmed only when the item is in stock there
+
+`reduction_kind` containing `instant_savings` is the retailer's promotion. It is a confirmed warehouse deal only when `RetailMemory.availability` is `in_stock` and `sale_scope` is `warehouse` or `both`.
+
+`sale_scope=online` is not a warehouse sale. `sale_scope=unknown`, a blank `sale_scope`, `availability` of `low_stock`, `out_of_stock`, or `unknown`, and a blank `availability` are not confirmation either. `low_stock` is recorded when the warehouse service says so, and it is not a promise the item is on the shelf. `price_scope=warehouse` says where the price was read. It does not say the item is on the shelf or that the discount redeems in the warehouse.
+
+A briefing MUST label every other warehouse-stock or warehouse-sale claim from `RetailMemory` as unconfirmed. `below_baseline` alone remains not a sale (`TRIP-02`).
+
+---
+
 # 16. External Data
 
 ## EXT-01 — Household observations outrank external data
@@ -1362,7 +1374,7 @@ In particular, an importer MUST NOT:
 - overwrite `item_policy` or an inventory explanation just to paste in a sale;
 - copy payment details, membership numbers, or credentials into the workbook.
 
-Recent purchases belong in `RetailMemory` and in one idempotent `purchased` or `refunded` event per receipt line. Current reductions belong only in `RetailMemory` and are updated in place. A price check does not append an event, and a receipt does not create an `Items` row. The briefing agent decides whether a cheaper price is worth buying. A sale still does not make inventory low (`DEAL-01`, `STATE-04`).
+Recent purchases belong in `RetailMemory` and in one idempotent `purchased` or `refunded` event per receipt line. Current reductions belong only in `RetailMemory` and are updated in place. A price check does not append an event, and a receipt does not create an `Items` row. The briefing agent decides whether a cheaper price is worth buying. A sale still does not make inventory low (`DEAL-01`, `STATE-04`). A priced row is not warehouse stock, and an instant-savings amount is not a warehouse sale, unless `DEAL-06` is satisfied.
 
 ---
 
@@ -1452,7 +1464,7 @@ A trip briefing SHOULD consider:
 - recent purchases, including `RetailMemory.last_paid_at`;
 - likely near-term consumption.
 
-For a named store, read `RetailMemory` rows for that store together with `Config` and `Items`. Do not scan `Events` just to discover the current price. `reduction_kind` containing `instant_savings` is a stock-up candidate only when household need, storage, and explicit don't-buy still allow it (`DEAL-01` through `DEAL-05`). `below_baseline` alone is not a sale and is not a stock-up candidate. A price below `last_paid_unit_price` is not a sale. `price_scope=online` is the online or member price, not a claim about the warehouse shelf tag.
+For a named store, read `RetailMemory` rows for that store together with `Config` and `Items`. Do not scan `Events` just to discover the current price. `reduction_kind` containing `instant_savings` is a stock-up candidate only when household need, storage, and explicit don't-buy still allow it (`DEAL-01` through `DEAL-05`) and the deal is confirmed for that store (`DEAL-06`). `below_baseline` alone is not a sale and is not a stock-up candidate. A price below `last_paid_unit_price` is not a sale. `price_scope=online` is the online or member price, not a claim about the warehouse shelf tag. Filter to rows that are `in_stock` and on sale in the warehouse (`sale_scope` `warehouse` or `both`). Label every other warehouse-stock or warehouse-sale claim unconfirmed.
 
 ---
 
@@ -2105,6 +2117,7 @@ They are restated here for convenience but remain governed by their full definit
 - `DEAL-02` — Strong deals do not override obvious excess inventory.
 - `DEAL-03` — Stock-up decisions should account for future use.
 - `DEAL-05` — Do not fabricate economic precision.
+- `DEAL-06` — A warehouse sale is confirmed only when the item is in stock and the sale scope is the warehouse. Anything else is unconfirmed.
 - `EXT-04` — Receipt import is purchase and price evidence, not a stock count. Named-store briefings read `RetailMemory`.
 - `INTEGRATION-01` — Install a store by its setup document. One scheduled importer per store membership. The login cannot place an order. The person copies the refresh token from their own browser. API failures are filed as redacted GitHub issues.
 

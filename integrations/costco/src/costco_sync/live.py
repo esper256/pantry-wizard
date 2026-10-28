@@ -5,15 +5,23 @@ queries. Current prices come from the product summary API the costco.com
 product page calls. ``CatalogDataType`` does not expose ``price`` or
 ``listPrice``, and ``priceData`` on the products GraphQL query is a catalog
 price that does not follow the warehouse or an instant-savings promotion.
+
+Shelf stock and the in-warehouse temporary price discount come from the
+warehouse-mode service the Costco app uses for its In-Warehouse view.
+That call needs no member token. The costco.com inventory batch call
+answers 429 to this client, so it is not used.
 """
 
 from __future__ import annotations
 
+import json
 import sys
 import time
+import urllib.error
+import urllib.request
 
-from costco_sync.models import AuthError, PriceLookupResult, RangeRejected, SearchHit
-from costco_sync.normalize import parse_summary_prices
+from costco_sync.models import AuthError, PriceLookupResult, PriceQuote, RangeRejected, SearchHit
+from costco_sync.normalize import observe_warehouse_item, parse_summary_prices
 
 # From the product page's productDetailApiV2Config. These are public client
 # ids shipped in costco.com's HTML, not member secrets.
@@ -21,6 +29,12 @@ _SUMMARY_URL = "https://gdx-api.costco.com/catalog/product/product-api/v2/produc
 _SUMMARY_CLIENT_IDENTIFIER = "b1be4e95-8696-4d93-8f50-5b5632922209"
 _SUMMARY_BATCH = 20
 PRICE_BATCH_PAUSE_SECONDS = 20
+WAREHOUSE_LOOKUP_PAUSE_SECONDS = 1
+_WAREHOUSE_URL = (
+    "https://gdx-api-mobileapps.costco.com/consumer-mobile/core/warehouse-mode/v1/mobile/"
+    "whmodebffservice/items"
+)
+_WAREHOUSE_STOP = {403, 429}
 
 
 class CostcoSource:
@@ -75,9 +89,11 @@ class CostcoSource:
         note = ", ".join(fetched.statuses)
         if not fetched.checked:
             return PriceLookupResult(ok=False, quotes=[], checked=[], note=note)
+        quotes = parse_summary_prices(fetched.products, warehouse_number)
+        self._attach_warehouse(quotes, fetched.checked, warehouse_number)
         return PriceLookupResult(
             ok=True,
-            quotes=parse_summary_prices(fetched.products, warehouse_number),
+            quotes=quotes,
             checked=fetched.checked,
             note=note,
         )
@@ -114,6 +130,39 @@ class CostcoSource:
             if _is_range_rejected(exc):
                 raise RangeRejected("Costco rejected this receipt date range") from exc
             raise
+
+    def _attach_warehouse(
+        self,
+        quotes: list[PriceQuote],
+        checked: list[str],
+        warehouse_number: str,
+        *,
+        pause_seconds: float = WAREHOUSE_LOOKUP_PAUSE_SECONDS,
+        sleep=None,
+        post=None,
+    ) -> None:
+        """Ask the warehouse-mode service once per priced item, then stop if it refuses."""
+        if sleep is None:
+            sleep = time.sleep
+        if post is None:
+            post = _post_warehouse_search
+        by_number = {quote.item_number: quote for quote in quotes}
+        wanted = [sku for sku in checked if sku in by_number]
+        for index, sku in enumerate(wanted):
+            if index and pause_seconds:
+                sleep(pause_seconds)
+            item, failure = post(sku, warehouse_number)
+            if failure in _WAREHOUSE_STOP:
+                print(
+                    f"Costco warehouse lookup stopped after HTTP {failure}. "
+                    f"{len(wanted) - index} items stay unknown.",
+                    file=sys.stderr,
+                )
+                return
+            if failure is not None:
+                print("Costco warehouse lookup failed for 1 item.", file=sys.stderr)
+                continue
+            observe_warehouse_item(by_number[sku], item)
 
     def _price_summaries(
         self,
@@ -166,6 +215,50 @@ class _SummaryFetch:
         self.products = products
         self.checked = checked
         self.statuses = statuses
+
+
+def _post_warehouse_search(item_number: str, warehouse_number: str):
+    """One warehouse-mode search. No member token and no anti-bot bypass.
+
+    Returns ``(item, None)`` for an exact item number, ``(None, None)`` when
+    the service answered without that number, or ``(None, status)`` on failure.
+    """
+    body = {
+        "type": "com.costco.app.core.model.network.BffIOHRequest",
+        "currentWarehouse": str(warehouse_number),
+        "selectedWarehouse": str(warehouse_number),
+        "searchTerm": str(item_number),
+        "maxWhCount": "10",
+        "sortField": "lastWeek",
+        "sortDirection": "desc",
+        "locale": "en_US",
+        "relevance": 80,
+        "validMember": True,
+    }
+    request = urllib.request.Request(
+        _WAREHOUSE_URL,
+        data=json.dumps(body).encode(),
+        method="POST",
+        headers={
+            "User-Agent": "device/Android",
+            "Content-Type": "application/json; charset=utf-8",
+            "Accept": "application/json",
+            "Cache-Control": "no-cache",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            payload = json.loads(response.read().decode())
+    except urllib.error.HTTPError as exc:
+        return None, exc.code
+    except Exception:
+        return None, "error"
+    if not isinstance(payload, dict):
+        return None, "error"
+    for item in payload.get("items") or []:
+        if isinstance(item, dict) and str(item.get("itemNumber") or "") == str(item_number):
+            return item, None
+    return None, None
 
 
 def _summary_batch(get, batch: list[str], warehouse_number: str, impersonate: str, client_id: str):

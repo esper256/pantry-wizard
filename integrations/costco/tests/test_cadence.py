@@ -476,6 +476,8 @@ def _row(sku: str, **fields) -> dict:
         "reduction_ends_at": "",
         "price_scope": "warehouse",
         "observed_at": "2026-09-01T10:00:00-07:00",
+        "availability": "unknown",
+        "sale_scope": "",
     }
     row.update(fields)
     return row
