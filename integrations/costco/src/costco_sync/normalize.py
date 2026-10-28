@@ -113,6 +113,8 @@ def parse_catalog_prices(catalog_items: list[dict]) -> list:
                 price_scope=scope,
                 product_name=name,
                 explicit_instant_savings=explicit,
+                availability="unknown",
+                sale_scope="unknown" if explicit else "",
             )
         )
     return quotes
@@ -121,9 +123,19 @@ def parse_catalog_prices(catalog_items: list[dict]) -> list:
 def parse_summary_prices(products: list[dict], warehouse_number: str) -> list:
     """Read warehouse prices from the product summary API.
 
-    ``displayPrice.onlinePrice`` is the warehouse price before a promotion.
-    ``displayPrice.deliveredPrice`` is what a member pays after that promotion.
-    Both follow ``whsNumber``. A promotion of at least ten cents is instant savings.
+    ``displayPrice.onlinePrice`` is the price before a promotion for ``whsNumber``.
+    ``displayPrice.deliveredPrice`` is the price after that promotion. A promotion
+    of at least ten cents is instant savings.
+
+    The same payload does not say whether the item is on the shelf. ``isBuyable``
+    and ``isPublished`` describe costco.com, and ``programTypes`` includes
+    ``InWarehouse`` for warehouse programs such as milk that are not buyable
+    online. None of those is a stock count. Availability is ``unknown``.
+
+    A promotion keyed by ``warehouseNumber`` has an amount and dates and no
+    channel. ``programTypes`` containing both ``InWarehouse`` and a delivery
+    type does not mean the discount redeems in the warehouse. Sale scope is
+    ``unknown`` on an instant-savings quote.
     """
     from costco_sync.models import PriceQuote
 
@@ -159,6 +171,8 @@ def parse_summary_prices(products: list[dict], warehouse_number: str) -> list:
                 product_name=_summary_name(product),
                 explicit_instant_savings=explicit,
                 variable_weight=_variable_weight(product),
+                availability="unknown",
+                sale_scope="unknown" if explicit else "",
             )
         )
     return quotes

@@ -13,6 +13,22 @@ import re
 _LEASE_FIELDS = ("owner", "lease_until")
 
 
+def migrate_retail_headers(headers: list[str]) -> list[str]:
+    """Append schema 0.3 columns. Leave every existing header where it is.
+
+    A workbook that already has ``availability`` or ``sale_scope`` keeps that
+    cell. New names go after the last current header. This does not rewrite
+    data rows; cells under the new headers stay blank until a later price check.
+    """
+    from costco_sync.decide import RETAIL_COLUMNS_ADDED_IN_0_3
+
+    updated = [str(header) for header in headers]
+    for name in RETAIL_COLUMNS_ADDED_IN_0_3:
+        if name not in updated:
+            updated.append(name)
+    return updated
+
+
 def validate_snapshot(data: dict) -> list[str]:
     problems: list[str] = []
     if "known_source_refs" not in data:

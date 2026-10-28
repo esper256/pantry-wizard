@@ -74,7 +74,18 @@ RETAIL_COLUMNS = (
     "reduction_ends_at",
     "price_scope",
     "observed_at",
+    "availability",
+    "sale_scope",
 )
+
+# Appended by the schema 0.3 upgrade. Do not insert these ahead of older columns.
+RETAIL_COLUMNS_ADDED_IN_0_3 = (
+    "availability",
+    "sale_scope",
+)
+
+_AVAILABILITY_VALUES = {"in_stock", "out_of_stock", "unknown"}
+_SALE_SCOPE_VALUES = {"warehouse", "online", "both"}
 
 EVENT_COLUMNS = (
     "event_id",
@@ -128,6 +139,8 @@ def snapshot_from_json(data: dict) -> Snapshot:
             reduction_ends_at=str(row.get("reduction_ends_at") or ""),
             price_scope=str(row.get("price_scope") or ""),
             observed_at=str(row.get("observed_at") or ""),
+            availability=str(row.get("availability") or ""),
+            sale_scope=str(row.get("sale_scope") or ""),
         )
         for row in data.get("retail_memory") or []
         if row.get("retail_key")
@@ -391,6 +404,41 @@ def _apply_quote(row: RetailRow, quote: PriceQuote, samples: list[str], observed
             baseline_values = [parsed]
     baseline = median_money(baseline_values)
     row.reduction_kind = _reduction_kind(quote, baseline)
+    row.availability = _observed_availability(quote)
+    row.sale_scope = _observed_sale_scope(quote, row.reduction_kind)
+
+
+def warehouse_sale_label(availability: str, reduction_kind: str, sale_scope: str) -> str:
+    """``confirmed`` only for an in-stock instant savings that applies in the warehouse.
+
+    Anything else is ``unconfirmed``: out of stock, unknown or blank stock,
+    an online-only or unknown sale channel, or a price that is not instant savings.
+    """
+    kinds = {part.strip() for part in (reduction_kind or "").split(",") if part.strip()}
+    if (
+        (availability or "").strip() == "in_stock"
+        and "instant_savings" in kinds
+        and (sale_scope or "").strip() in {"warehouse", "both"}
+    ):
+        return "confirmed"
+    return "unconfirmed"
+
+
+def _observed_availability(quote: PriceQuote) -> str:
+    value = (quote.availability or "").strip()
+    if value in _AVAILABILITY_VALUES:
+        return value
+    return "unknown"
+
+
+def _observed_sale_scope(quote: PriceQuote, reduction_kind: str) -> str:
+    kinds = {part.strip() for part in (reduction_kind or "").split(",") if part.strip()}
+    if "instant_savings" not in kinds:
+        return ""
+    value = (quote.sale_scope or "").strip()
+    if value in _SALE_SCOPE_VALUES:
+        return value
+    return "unknown"
 
 
 def _reduction_kind(quote: PriceQuote, baseline: Decimal | None) -> str:

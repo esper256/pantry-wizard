@@ -9,7 +9,14 @@ from pathlib import Path
 
 import pytest
 
-from costco_sync.decide import build_mutations, snapshot_from_json
+from costco_sync.decide import (
+    RETAIL_COLUMNS,
+    RETAIL_COLUMNS_ADDED_IN_0_3,
+    build_mutations,
+    snapshot_from_json,
+    warehouse_sale_label,
+)
+from costco_sync.sheetapply import migrate_retail_headers
 from costco_sync.live import CostcoSource
 from costco_sync.models import AuthError, PriceLookupResult, PriceQuote, SearchHit
 from costco_sync.normalize import (
@@ -457,6 +464,8 @@ def test_unchanged_price_is_not_written_back():
                 "reduction_ends_at": "",
                 "price_scope": "warehouse",
                 "observed_at": "2026-09-01T10:00:00-07:00",
+                "availability": "unknown",
+                "sale_scope": "",
             }
         ]
     )
@@ -523,12 +532,16 @@ def test_warehouse_summary_prices_record_the_sale_and_leave_an_unsale_price():
     assert guac.regular_price == Decimal("13.99")
     assert guac.price_scope == "warehouse"
     assert guac.explicit_instant_savings
+    assert guac.availability == "unknown"
+    assert guac.sale_scope == "unknown"
     assert guac.reduction_ends_at == "2026-10-25"
     assert guac.product_name.startswith("Wholly Guacamole")
     crackers = quotes["1542070"]
     assert crackers.current_price == Decimal("11.79")
     assert crackers.regular_price == Decimal("11.79")
     assert crackers.price_scope == "warehouse"
+    assert crackers.availability == "unknown"
+    assert crackers.sale_scope == ""
     assert not crackers.explicit_instant_savings
     assert crackers.reduction_ends_at == ""
 
@@ -575,8 +588,12 @@ def test_warehouse_summary_prices_record_the_sale_and_leave_an_unsale_price():
     assert by_key["costco:663:1553261"]["reduction_kind"] == "instant_savings"
     assert by_key["costco:663:1553261"]["reduction_ends_at"] == "2026-10-25"
     assert by_key["costco:663:1553261"]["price_scope"] == "warehouse"
+    assert by_key["costco:663:1553261"]["availability"] == "unknown"
+    assert by_key["costco:663:1553261"]["sale_scope"] == "unknown"
     assert by_key["costco:663:1542070"]["current_price"] == "11.79"
     assert by_key["costco:663:1542070"]["reduction_kind"] == ""
+    assert by_key["costco:663:1542070"]["availability"] == "unknown"
+    assert by_key["costco:663:1542070"]["sale_scope"] == ""
     assert not any(event["event_type"] == "deal_observed" for event in mutations["events"])
 
 
@@ -846,3 +863,262 @@ def test_auth_without_a_token_points_at_chrome_devtools(monkeypatch: pytest.Monk
     assert "refreshtoken" in printed
     assert "--refresh-token-stdin" in printed
     assert "costco-auth-browser" not in printed
+
+
+def test_summary_does_not_invent_stock_or_a_warehouse_sale():
+    """Recorded from the product summary API for warehouse 663 on 2026-10-28.
+
+    Item 1 is warehouse milk and is not buyable on costco.com. Item 1948871
+    still has a $23.99 warehouse price with no InWarehouse program. Item
+    2035569 is $9 off through 2026-11-15 and is also an InWarehouse program.
+    None of those flags is shelf stock or a warehouse-versus-online sale.
+    """
+    payload = json.loads((Path(__file__).parent / "fixtures" / "summary_stock_663.json").read_text())
+    quotes = {
+        quote.item_number: quote
+        for quote in parse_summary_prices(payload["productData"], "663")
+    }
+    milk = quotes["1"]
+    brisket = quotes["1948871"]
+    friskies = quotes["2035569"]
+    assert milk.current_price == Decimal("7.05")
+    assert milk.availability == "unknown"
+    assert milk.sale_scope == ""
+    assert brisket.current_price == Decimal("23.99")
+    assert brisket.availability == "unknown"
+    assert brisket.sale_scope == ""
+    assert not brisket.explicit_instant_savings
+    assert friskies.current_price == Decimal("33.99")
+    assert friskies.regular_price == Decimal("42.99")
+    assert friskies.reduction_ends_at == "2026-11-15"
+    assert friskies.explicit_instant_savings
+    assert friskies.price_scope == "warehouse"
+    assert friskies.availability == "unknown"
+    assert friskies.sale_scope == "unknown"
+
+    def prices(skus, warehouse):
+        del skus, warehouse
+        return PriceLookupResult(ok=True, quotes=[friskies, brisket])
+
+    mutations, _, _ = build_mutations(
+        _snapshot(
+            preferred_costco_warehouse="663 Concord",
+            retail_memory=[
+                {
+                    "retail_key": "costco:663:2035569",
+                    "store": "Costco",
+                    "location": "663 Concord",
+                    "retailer_sku": "2035569",
+                    "current_price": "42.99",
+                    "regular_price": "42.99",
+                    "reduction_kind": "",
+                    "price_scope": "warehouse",
+                },
+                {
+                    "retail_key": "costco:663:1948871",
+                    "store": "Costco",
+                    "location": "663 Concord",
+                    "retailer_sku": "1948871",
+                    "current_price": "23.99",
+                    "regular_price": "23.99",
+                    "price_scope": "warehouse",
+                },
+            ],
+        ),
+        [],
+        names={},
+        price_lookup=prices,
+        search=_no_search,
+        baseline_samples={},
+        already_sampled=set(),
+        now=NOW,
+    )
+    by_key = {row["retail_key"]: row for row in mutations["retail_memory_upserts"]}
+    assert by_key["costco:663:2035569"]["reduction_kind"] == "instant_savings"
+    assert by_key["costco:663:2035569"]["sale_scope"] == "unknown"
+    assert by_key["costco:663:2035569"]["availability"] == "unknown"
+    assert by_key["costco:663:2035569"]["observed_at"]
+    assert by_key["costco:663:1948871"]["availability"] == "unknown"
+    assert by_key["costco:663:1948871"]["sale_scope"] == ""
+    assert by_key["costco:663:1948871"]["current_price"] == "23.99"
+    assert warehouse_sale_label(
+        by_key["costco:663:2035569"]["availability"],
+        by_key["costco:663:2035569"]["reduction_kind"],
+        by_key["costco:663:2035569"]["sale_scope"],
+    ) == "unconfirmed"
+
+
+def test_a_reported_channel_is_kept_and_only_that_sale_is_confirmed():
+    def prices(skus, warehouse):
+        del skus, warehouse
+        return PriceLookupResult(
+            ok=True,
+            quotes=[
+                PriceQuote(
+                    item_number="1",
+                    current_price=Decimal("21.69"),
+                    regular_price=Decimal("28.69"),
+                    price_scope="warehouse",
+                    explicit_instant_savings=True,
+                    availability="in_stock",
+                    sale_scope="both",
+                    reduction_ends_at="2026-11-15",
+                )
+            ],
+        )
+
+    mutations, _, _ = build_mutations(
+        _snapshot(
+            preferred_costco_warehouse="663 Concord",
+            retail_memory=[
+                {
+                    "retail_key": "costco:663:1",
+                    "store": "Costco",
+                    "location": "663 Concord",
+                    "retailer_sku": "1",
+                    "current_price": "28.69",
+                    "regular_price": "28.69",
+                }
+            ],
+        ),
+        [],
+        names={},
+        price_lookup=prices,
+        search=_no_search,
+        baseline_samples={},
+        already_sampled=set(),
+        now=NOW,
+    )
+    row = mutations["retail_memory_upserts"][0]
+    assert row["availability"] == "in_stock"
+    assert row["sale_scope"] == "both"
+    assert row["reduction_kind"] == "instant_savings"
+    assert warehouse_sale_label(row["availability"], row["reduction_kind"], row["sale_scope"]) == "confirmed"
+
+
+def test_ending_instant_savings_clears_sale_scope():
+    def prices(skus, warehouse):
+        del skus, warehouse
+        return PriceLookupResult(
+            ok=True,
+            quotes=[
+                PriceQuote(
+                    item_number="720",
+                    current_price=Decimal("28.69"),
+                    regular_price=Decimal("28.69"),
+                    price_scope="warehouse",
+                    availability="out_of_stock",
+                )
+            ],
+        )
+
+    mutations, _, _ = build_mutations(
+        _snapshot(
+            preferred_costco_warehouse="663 Concord",
+            retail_memory=[
+                {
+                    "retail_key": "costco:663:720",
+                    "store": "Costco",
+                    "location": "663 Concord",
+                    "retailer_sku": "720",
+                    "current_price": "21.69",
+                    "regular_price": "28.69",
+                    "reduction_kind": "instant_savings",
+                    "reduction_ends_at": "2026-11-15",
+                    "sale_scope": "unknown",
+                    "availability": "unknown",
+                    "price_scope": "warehouse",
+                }
+            ],
+        ),
+        [],
+        names={},
+        price_lookup=prices,
+        search=_no_search,
+        baseline_samples={},
+        already_sampled=set(),
+        now=NOW,
+    )
+    row = mutations["retail_memory_upserts"][0]
+    assert row["reduction_kind"] == ""
+    assert row["sale_scope"] == ""
+    assert row["availability"] == "out_of_stock"
+    assert warehouse_sale_label(row["availability"], row["reduction_kind"], row["sale_scope"]) == "unconfirmed"
+
+
+def test_legacy_row_records_unknown_without_moving_older_columns():
+    def prices(skus, warehouse):
+        del skus, warehouse
+        return PriceLookupResult(
+            ok=True,
+            quotes=[
+                PriceQuote(
+                    item_number="42",
+                    current_price=Decimal("11.99"),
+                    regular_price=Decimal("11.99"),
+                    price_scope="warehouse",
+                )
+            ],
+        )
+
+    mutations, _, _ = build_mutations(
+        _snapshot(
+            retail_memory=[
+                {
+                    "retail_key": "costco:121:42",
+                    "store": "Costco",
+                    "location": "121 Foster City",
+                    "retailer_sku": "42",
+                    "current_price": "11.99",
+                    "regular_price": "11.99",
+                    "reduction_kind": "",
+                    "price_scope": "warehouse",
+                    "observed_at": "2026-09-01T10:00:00-07:00",
+                }
+            ]
+        ),
+        [],
+        names={},
+        price_lookup=prices,
+        search=_no_search,
+        baseline_samples={},
+        already_sampled=set(),
+        now=NOW,
+    )
+    row = mutations["retail_memory_upserts"][0]
+    assert row["current_price"] == "11.99"
+    assert row["availability"] == "unknown"
+    assert row["sale_scope"] == ""
+    assert list(row)[:17] == list(RETAIL_COLUMNS[:17])
+    assert RETAIL_COLUMNS[-2:] == RETAIL_COLUMNS_ADDED_IN_0_3
+
+
+def test_schema_03_appends_retail_columns_and_does_not_reorder():
+    headers = list(RETAIL_COLUMNS[:17])
+    migrated = migrate_retail_headers(headers)
+    assert migrated[:17] == headers
+    assert migrated[-2:] == ["availability", "sale_scope"]
+    assert migrate_retail_headers(migrated) == migrated
+    already = headers[:5] + ["sale_scope"] + headers[5:]
+    again = migrate_retail_headers(already)
+    assert again.index("sale_scope") == 5
+    assert again[-1] == "availability"
+
+
+@pytest.mark.parametrize(
+    ("availability", "reduction_kind", "sale_scope", "label"),
+    [
+        ("in_stock", "instant_savings", "warehouse", "confirmed"),
+        ("in_stock", "instant_savings,below_baseline", "both", "confirmed"),
+        ("in_stock", "instant_savings", "online", "unconfirmed"),
+        ("in_stock", "instant_savings", "unknown", "unconfirmed"),
+        ("in_stock", "instant_savings", "", "unconfirmed"),
+        ("out_of_stock", "instant_savings", "warehouse", "unconfirmed"),
+        ("unknown", "instant_savings", "both", "unconfirmed"),
+        ("", "instant_savings", "warehouse", "unconfirmed"),
+        ("in_stock", "below_baseline", "", "unconfirmed"),
+        ("in_stock", "", "", "unconfirmed"),
+    ],
+)
+def test_warehouse_sale_label(availability, reduction_kind, sale_scope, label):
+    assert warehouse_sale_label(availability, reduction_kind, sale_scope) == label

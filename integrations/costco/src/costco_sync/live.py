@@ -5,6 +5,11 @@ queries. Current prices come from the product summary API the costco.com
 product page calls. ``CatalogDataType`` does not expose ``price`` or
 ``listPrice``, and ``priceData`` on the products GraphQL query is a catalog
 price that does not follow the warehouse or an instant-savings promotion.
+
+That summary payload has no warehouse shelf count and no field for whether
+an instant-savings promotion redeems in the warehouse, online, or both.
+The inventory batch call the product page uses is not available to this
+client. Those two facts are recorded as ``unknown`` rather than inferred.
 """
 
 from __future__ import annotations

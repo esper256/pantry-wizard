@@ -18,6 +18,10 @@ A warehouse sale is recorded when Costco's price before the promotion is at leas
 
 `price_scope=warehouse` is set only when the payload has a warehouse price field. A generic catalog price is recorded as `online` and is not the warehouse shelf tag.
 
+Each priced row also records `availability` and, when the row is instant savings, `sale_scope`. The product summary payload does not include a warehouse shelf count. `isBuyable`, `isPublished`, and `programTypes` (including `InWarehouse`) describe the costco.com program, not whether Concord has the item today. The product page's inventory call is not available to this client. Availability is `unknown` until a source actually reports `in_stock` or `out_of_stock`.
+
+An instant-savings promotion on that payload has an amount and dates and no channel. A discount keyed by warehouse number is not evidence the warehouse shelf is on sale. `sale_scope` is `unknown` unless the payload says `warehouse`, `online`, or `both`. A briefing treats a row as a confirmed warehouse deal only when availability is `in_stock` and `sale_scope` is `warehouse` or `both`. Everything else is unconfirmed.
+
 The mutation file does not add `Items` rows and does not change `inventory_state`, quantity, purchase intent, preferred stores, or item policy. A receipt SKU that the household has not already named stays in `RetailMemory` with a blank `item_id`. A price change updates that row. It does not append an event.
 
 A household installs this through [SETUP.md](SETUP.md). That document is the procedure a Grok Bot follows. This page is the developer note for the CLI.

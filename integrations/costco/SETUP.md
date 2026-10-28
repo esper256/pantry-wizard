@@ -92,6 +92,8 @@ Exit code 2 means auth failed. Do not apply an older mutation file over current 
 
 ## 7. Apply and tell the truth
 
+If `Config.schema_version` is older than the schema loaded from `schema_url`, apply the upgrade note in that schema before writing. For schema 0.3, append `RetailMemory` headers `availability` and `sale_scope` after the existing headers. Do not reorder columns and do not fill the new cells by hand.
+
 Apply the mutation file with the Sheets plugin:
 
 1. Leave `Items` unchanged. Do not add a household item because it appeared on a receipt.

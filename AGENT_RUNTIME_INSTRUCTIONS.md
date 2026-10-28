@@ -375,6 +375,8 @@ Read `Config` and `Items`. For a named store, also read that store's `RetailMemo
 
 `price_scope=online` is the online or member price. Do not call it the warehouse shelf tag.
 
+A warehouse deal is confirmed only when `availability` is `in_stock`, `reduction_kind` contains `instant_savings`, and `sale_scope` is `warehouse` or `both`. Filter the trip list to those rows. Label every other claim that an item is on the shelf or on sale in the warehouse as unconfirmed. That includes `out_of_stock`, `availability` `unknown` or blank, `sale_scope` `online` or `unknown` or blank, and `below_baseline` without instant savings. `price_scope=warehouse` does not confirm stock or a warehouse sale. Do not fill in `in_stock` or a warehouse sale from a price alone.
+
 `last_paid_at` is a recent purchase when the date is recent. It does not by itself say how many are left at home.
 
 Consider:

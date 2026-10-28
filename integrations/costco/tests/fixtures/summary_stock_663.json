@@ -1,0 +1,53 @@
+{
+  "recorded_on": "2026-10-28",
+  "warehouse": "663",
+  "note": "Trimmed product summary payloads. programTypes and isBuyable are present and are not stock or sale channel.",
+  "productData": [
+    {
+      "id": "1",
+      "programTypes": ["3rdPartyDelivery", "SiteControlledInventory", "InWarehouse", "Standard", "WarehouseDelivery", "ShipIt"],
+      "isPublished": false,
+      "isBuyable": false,
+      "descriptions": [{"object": {"shortDescription": "Kirkland Signature 2% Reduced Fat Milk, 1 gal, 2-count"}}],
+      "discounts": [],
+      "displayPrice": [
+        {"warehouseNumber": "663", "onlinePrice": 7.05, "aggregatedDiscountAmt": 0, "deliveredPrice": 7.05}
+      ]
+    },
+    {
+      "id": "1948871",
+      "programTypes": ["3rdPartyDelivery", "SiteControlledInventory", "Standard", "WarehouseDelivery", "ShipIt"],
+      "isPublished": false,
+      "isBuyable": false,
+      "descriptions": [{"object": {"shortDescription": "Young Ridge Cattle Co. Brisket Blend Smash Burgers, 4 lbs"}}],
+      "discounts": [],
+      "displayPrice": [
+        {"warehouseNumber": "663", "onlinePrice": 23.99, "aggregatedDiscountAmt": 0, "deliveredPrice": 23.99}
+      ]
+    },
+    {
+      "id": "2035569",
+      "programTypes": ["3rdPartyDelivery", "2DayDelivery", "LocationControlledInventory", "InWarehouse", "WarehouseDelivery", "ShipIt"],
+      "isPublished": true,
+      "isBuyable": true,
+      "descriptions": [{"object": {"shortDescription": "Purina Friskies Pate Wet Cat Food Variety Pack, 5.5 oz, 60-count"}}],
+      "discounts": [
+        {
+          "warehouseNumber": "663",
+          "promotions": [
+            {
+              "promotionStartDate": "2026-10-12T07:00:00Z",
+              "promotionEndDate": "2026-11-15T08:00:00Z",
+              "calculatedDiscountAmount": 9,
+              "promotionType": "AMT_OFF_IND_CAT_ENT"
+            }
+          ],
+          "temporaryPriceReductions": []
+        }
+      ],
+      "displayPrice": [
+        {"warehouseNumber": "663", "onlinePrice": 42.99, "aggregatedDiscountAmt": 9, "deliveredPrice": 33.99}
+      ]
+    }
+  ]
+}
