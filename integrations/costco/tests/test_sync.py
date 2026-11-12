@@ -731,6 +731,77 @@ def test_a_failed_summary_batch_keeps_earlier_prices(monkeypatch, capsys):
     assert "HTTP 503 for 20 items." in capsys.readouterr().err
 
 
+def _summary_source(monkeypatch, in_catalog: set[str], calls: list[list[str]]):
+    """A source whose catalog answers 404 when it knows none of the numbers asked for."""
+    source = CostcoSource.__new__(CostcoSource)
+    source._require_auth = lambda: None
+    monkeypatch.setattr("costco_sync.live.time.sleep", lambda seconds: None)
+
+    class Response:
+        def __init__(self, numbers: list[str]):
+            self.status_code = 200 if numbers else 404
+            self._numbers = numbers
+
+        def json(self):
+            return {
+                "productData": [
+                    {
+                        "id": number,
+                        "displayPrice": [
+                            {"warehouseNumber": "663", "onlinePrice": 4.99, "deliveredPrice": 4.99}
+                        ],
+                    }
+                    for number in self._numbers
+                ]
+            }
+
+    def get(*args, **kwargs):
+        del args
+        items = kwargs["params"]["items"].split(",")
+        calls.append(items)
+        return Response([number for number in items if number in in_catalog])
+
+    monkeypatch.setattr("curl_cffi.requests.get", get)
+    monkeypatch.setattr(source, "_attach_warehouse", lambda quotes, checked, warehouse: None)
+    return source
+
+
+def test_a_batch_costco_knows_none_of_is_checked_and_missing(monkeypatch, capsys):
+    """Issue 45: Costco answers 404 when every number in a batch has left its catalog."""
+    calls: list[list[str]] = []
+    source = _summary_source(monkeypatch, {"9158"}, calls)
+    result = source.lookup_prices(["9153", "1484853"], "663", known=["9158"])
+    assert calls == [["9153", "1484853"], ["9153", "1484853", "9158"]]
+    assert result.ok is True
+    assert result.checked == ["9153", "1484853"]
+    assert result.quotes == []  # the number added as proof is not reported
+    assert capsys.readouterr().err == ""
+
+
+def test_a_404_with_nothing_to_prove_it_stays_a_failure(monkeypatch, capsys):
+    """If the service had moved, every batch would answer 404 as well."""
+    calls: list[list[str]] = []
+    source = _summary_source(monkeypatch, set(), calls)
+    assert source.lookup_prices(["9153"], "663").ok is False
+    assert calls == [["9153"]]
+    calls.clear()
+    result = source.lookup_prices(["9153"], "663", known=["9158", "9159", "9160"])
+    assert result.ok is False
+    assert calls == [["9153"], ["9153", "9158"], ["9153", "9159"]]
+    assert "HTTP 404 for 1 items." in capsys.readouterr().err
+
+
+def test_a_number_priced_earlier_in_the_run_proves_a_later_batch(monkeypatch):
+    calls: list[list[str]] = []
+    source = _summary_source(monkeypatch, {"0"}, calls)
+    numbers = [str(index) for index in range(22)]
+    result = source.lookup_prices(numbers, "663")
+    assert calls == [numbers[:20], numbers[20:], numbers[20:] + ["0"]]
+    assert result.ok is True
+    assert result.checked == numbers
+    assert [quote.item_number for quote in result.quotes] == ["0"]
+
+
 def test_price_summary_http_400_does_not_become_an_auth_failure():
     source = CostcoSource.__new__(CostcoSource)
     source._require_auth = lambda: None

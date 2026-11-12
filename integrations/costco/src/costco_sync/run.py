@@ -232,7 +232,12 @@ def import_windows(
         )
         if not due:
             return PriceLookupResult(ok=True, quotes=[])
-        result = source.lookup_prices(due, warehouse)
+        known = sorted(
+            (row for row in retail_rows.values() if row.current_price),
+            key=lambda row: row.observed_at,
+            reverse=True,
+        )
+        result = source.lookup_prices(due, warehouse, known=[row.retailer_sku for row in known[:5]])
         held["requested"] = due
         held["result"] = result
         if not result.ok:

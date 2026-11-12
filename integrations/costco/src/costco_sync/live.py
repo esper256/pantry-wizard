@@ -28,6 +28,7 @@ from costco_sync.normalize import observe_warehouse_item, parse_summary_prices
 _SUMMARY_URL = "https://gdx-api.costco.com/catalog/product/product-api/v2/products/summary"
 _SUMMARY_CLIENT_IDENTIFIER = "b1be4e95-8696-4d93-8f50-5b5632922209"
 _SUMMARY_BATCH = 20
+_KNOWN_TRIES = 2  # a number priced before may itself have left the catalog
 PRICE_BATCH_PAUSE_SECONDS = 20
 WAREHOUSE_LOOKUP_PAUSE_SECONDS = 1
 _WAREHOUSE_URL = (
@@ -73,12 +74,15 @@ class CostcoSource:
         self._require_auth()
         return self._call(self._api.lookup_products, item_numbers, warehouse_number)
 
-    def lookup_prices(self, item_numbers: list[str], warehouse_number: str) -> PriceLookupResult:
+    def lookup_prices(
+        self, item_numbers: list[str], warehouse_number: str, known: tuple[str, ...] | list[str] = ()
+    ) -> PriceLookupResult:
+        """``known`` are item numbers Costco has priced before. See ``_price_summaries``."""
         self._require_auth()
         if not item_numbers:
             return PriceLookupResult(ok=True, quotes=[])
         try:
-            fetched = self._price_summaries(item_numbers, warehouse_number)
+            fetched = self._price_summaries(item_numbers, warehouse_number, known=known)
         except AuthError:
             raise
         except Exception as exc:
@@ -169,9 +173,18 @@ class CostcoSource:
         item_numbers: list[str],
         warehouse_number: str,
         *,
+        known: tuple[str, ...] | list[str] = (),
         pause_seconds: float = PRICE_BATCH_PAUSE_SECONDS,
         sleep=None,
     ):
+        """Fetch summaries in batches. A batch that fails is left unchecked.
+
+        Costco answers HTTP 404 when no number in a batch is in its catalog,
+        which looks the same as the service having moved. So a 404 batch is
+        asked again with one number that has a price: an answer then proves
+        the rest are missing, and they count as checked with no price. With no
+        such number to add, or if that fails too, the batch stays a failure.
+        """
         if sleep is None:
             sleep = time.sleep
         from costco_mcp_server.auth import WCS_CLIENT_ID
@@ -185,28 +198,43 @@ class CostcoSource:
         found: list[dict] = []
         checked: list[str] = []
         statuses: list[str] = []
+        priced = [str(number) for number in known if str(number) not in item_numbers]
+
+        def ask(numbers: list[str]):
+            return _summary_batch(
+                curl_requests.get, numbers, warehouse_number, impersonate, WCS_CLIENT_ID
+            )
+
         offsets = range(0, len(item_numbers), _SUMMARY_BATCH)
         for index, offset in enumerate(offsets):
             if index and pause_seconds:
                 sleep(pause_seconds)
             batch = item_numbers[offset : offset + _SUMMARY_BATCH]
-            products, failure = _summary_batch(
-                curl_requests.get, batch, warehouse_number, impersonate, WCS_CLIENT_ID
-            )
-            if failure is not None:
+            products, failure = ask(batch)
+            added: set[str] = set()
+            if failure is not None and _status_code(failure) == 404:
+                for extra in priced[:_KNOWN_TRIES]:
+                    if pause_seconds:
+                        sleep(pause_seconds)
+                    added = {extra}
+                    products, failure = ask(batch + [extra])
+                    if failure is None or _status_code(failure) != 404:
+                        break
+            elif failure is not None:
                 if pause_seconds:
                     sleep(pause_seconds)
-                products, failure = _summary_batch(
-                    curl_requests.get, batch, warehouse_number, impersonate, WCS_CLIENT_ID
-                )
+                products, failure = ask(batch)
             if failure is not None:
                 print(_summary_failure_text(failure, len(batch)), file=sys.stderr)
                 status = _failure_status(failure)
                 if status and status not in statuses:
                     statuses.append(status)
                 continue
+            products = [p for p in products if _summary_number(p) not in added]
             found.extend(products)
             checked.extend(batch)
+            # A number answered in this run is the best proof for a later batch.
+            priced = [n for n in map(_summary_number, products) if n] + priced
         return _SummaryFetch(found, checked, statuses)
 
 
@@ -303,6 +331,10 @@ def _summary_batch(get, batch: list[str], warehouse_number: str, impersonate: st
     if not isinstance(products, list):
         return [], RuntimeError("Costco price summary did not return productData")
     return products, None
+
+
+def _summary_number(product) -> str:
+    return str(product.get("id") or "") if isinstance(product, dict) else ""
 
 
 def _failure_status(exc: BaseException) -> str:

@@ -73,7 +73,7 @@ class _Source:
         del skus, warehouse
         return {}
 
-    def lookup_prices(self, skus, warehouse):
+    def lookup_prices(self, skus, warehouse, known=()):
         del warehouse
         self.asked.extend(skus)
         quotes = [
@@ -144,7 +144,7 @@ def test_mutation_file_names_the_numbers_costco_answered_for(tmp_path):
 
 def test_a_failed_lookup_reports_no_numbers_as_checked(tmp_path):
     class _Down(_Source):
-        def lookup_prices(self, skus, warehouse):
+        def lookup_prices(self, skus, warehouse, known=()):
             del skus, warehouse
             return PriceLookupResult(ok=False, quotes=[], checked=[])
 

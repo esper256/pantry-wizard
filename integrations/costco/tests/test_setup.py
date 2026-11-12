@@ -96,7 +96,7 @@ class Catalog:
         del skus
         return {}
 
-    def lookup_prices(self, skus, warehouse):
+    def lookup_prices(self, skus, warehouse, known=()):
         from costco_sync.models import PriceLookupResult
 
         del skus
