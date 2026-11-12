@@ -28,6 +28,29 @@ class CliTests(unittest.TestCase):
         self.assertIn("Unknown person", bad.stderr)
         self.assertIn("On the list", self.pw("brief", "anywhere").stdout)
         self.assertEqual(json.loads(self.pw("doctor").stdout), {"problems": []})
+        asked = self.pw("sql", "SELECT name, by FROM requests ORDER BY name", "SELECT today() > '2026'")
+        self.assertEqual(json.loads(asked.stdout), [
+            {"columns": ["name", "by"], "rows": [["Beer", "alex"], ["Milk", "alex"]]},
+            {"columns": ["today() > '2026'"], "rows": [[1]]}])
+        self.assertEqual(json.loads(self.pw("sql", "-", stdin="SELECT COUNT(*) FROM Items").stdout)[0]["rows"], [[1]])
+        self.assertIn("requests (date, kind,", self.pw("schema").stdout)
+        asked = json.loads(self.pw("requests", "--person", "alex", "--days", "7", "--limit", "1").stdout)
+        self.assertEqual((asked["covers"]["person"], asked["totals"]["open"], len(asked["rows"]), asked["not_shown"]),
+                         ("alex", 2, 1, 1))
+        self.assertEqual(json.loads(self.pw("purchases", "--item", "milk", "--by", "month").stdout)["rows"], [])
+        self.assertEqual(self.pw("trips", "--store", "nowhere").returncode, 1)
+        self.assertEqual(json.loads(self.pw("prices", "--history").stdout)["totals"], {"changes": 0})
+        dry = self.pw("apply", "--by", "alex", "--check", json.dumps([{"op": "add", "text": "Wine"}]))
+        self.assertEqual(json.loads(dry.stdout), {"checked": [{"op": "add", "added": "Wine"}], "written": False})
+        self.assertEqual(len(json.loads(self.pw("list").stdout)["buy"]), 2)
+        self.pw("apply", "--by", "alex", json.dumps([{"op": "set_item", "item": "milk", "rule": "on_sale",
+                                                     "aliases": "2% milk", "note": "the blue cap"}]))
+        item = json.loads(self.pw("item", "milk").stdout)
+        self.assertEqual((item["rule"], item["aliases"], item["note"], item["products"]),
+                         ("on_sale", "2% milk", "the blue cap", []))
+        refused = self.pw("sql", "DELETE FROM List")
+        self.assertEqual(refused.returncode, 1)
+        self.assertIn("only reads", refused.stderr)
         self.assertTrue(os.path.exists(os.path.join(self.tmp, ".pantry-wizard", "ops.log")))
         wipe = self.pw("init")
         self.assertEqual(wipe.returncode, 1)

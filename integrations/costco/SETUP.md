@@ -21,7 +21,7 @@ If `membership_fingerprint` is already set, a later download from a different me
 ## 2. Install the CLI
 
 ```bash
-pip install "git+https://github.com/esper256/pantry-wizard@v2.1.0#subdirectory=integrations/costco"
+pip install "git+https://github.com/esper256/pantry-wizard@v2.2.0#subdirectory=integrations/costco"
 ```
 
 Use the same release as your `pw`. Computer Update, Recover, and Reset remove installed packages, so every later run installs both again first.

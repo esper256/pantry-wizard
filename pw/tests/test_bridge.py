@@ -43,6 +43,22 @@ MUTATION = {
 
 
 class BridgeTests(unittest.TestCase):
+    def test_late_totals_fill_only_an_imported_receipt_that_has_none(self):
+        be = household()
+        setup_store(be)
+        receipt(be, "costco", "2026-10-13", [{"sku": "1", "text": "A"}], rid="OLD")
+        receipt(be, "costco", "2026-10-14", [{"sku": "1", "text": "A"}], rid="HAS", total="9.00")
+        receipt(be, "costco", "2026-10-15", [{"sku": "1", "text": "A"}], rid="PIC", source="photo")
+        snap = costco_bridge.snapshot(book(be), "costco")
+        self.assertEqual(snap["receipts_missing_totals"], ["OLD"])
+        totals = [{"barcode": b, "total": "5.46", "tax": "0.46", "instant_savings": "1.00"}
+                  for b in ("OLD", "HAS", "PIC", "NEVER-SEEN")]
+        report = costco_bridge.apply(book(be), {"receipts": [], "receipt_totals": totals})
+        self.assertEqual(report["totals_filled"], 1)
+        got = {r["receipt"]: (r["total"], r["tax"], r["savings"]) for r in rows(be, "Receipts")}
+        self.assertEqual(got, {"costco:OLD": ("5.46", "0.46", "1.00"), "costco:HAS": ("9.00", "", ""),
+                               "photo:costco:PIC": ("", "", "")})
+
     def test_apply_writes_each_fact_to_its_own_tab(self):
         be = household()
         setup_store(be)

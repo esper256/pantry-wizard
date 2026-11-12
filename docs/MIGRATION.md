@@ -52,15 +52,25 @@ The migration reads the old workbook and writes a new one. The old sheet is neve
 - **Other standing rules.** Only "only if on sale" and "whenever in stock" are recognised in policy text. Set anything else, such as `only_at` or `max_price`, with `set_item` after the migration; the original text is in `keep`.
 - **`checked_at`.** The old sheet only stamped a row when its value changed, so migrated `checked_at` values can be older than the truth. The first sync fixes this.
 
-## From 2.0 to 2.1
+## From 2.0 or 2.1 to 2.2
 
-A sheet made by `pw` 2.0 is upgraded where it is. Nothing moves to a new sheet.
+A sheet made by `pw` 2.0 or 2.1 is upgraded where it is. Nothing moves to a new sheet.
 
-1. Install `pw` 2.1 and, where it runs, `integrations/costco` from the same release, on every agent.
+1. Install `pw` 2.2 and, where it runs, `integrations/costco` from the same release, on every agent.
 2. On one agent: `pw upgrade`, then `pw doctor`.
 
-`pw upgrade` adds an `account` column to `Receipts` and rewrites `Sync` with `sync`, `account` and `prices` columns. The existing importer row becomes the store's `primary` account and keeps refreshing prices. No other row is touched, and running it twice does nothing. Every command keeps working without an `--account` flag.
+What `pw upgrade` changes:
 
-Between the two steps, an agent on 2.1 refuses to write and says to run `pw upgrade`. After step 2, an agent still on 2.0 refuses to write and says to update. Neither can damage the sheet.
+- **From 2.0:** `Receipts` gains an `account` column, and `Sync` is rewritten with `sync`, `account` and `prices` columns. The existing importer row becomes the store's `primary` account and keeps refreshing prices. Every command keeps working without an `--account` flag.
+- **From 2.0 or 2.1:** `Receipts` gains `tax` and `savings` columns, and an empty `PriceHistory` tab is added.
 
-It writes the new header one column to the right of the last one on `Receipts`. Tabs made by `pw init` have room. If someone has deleted the spare columns from that tab, add one first.
+No other row is touched, and running it twice does nothing.
+
+Between the two steps, an agent on 2.2 refuses to write and says to run `pw upgrade`. After step 2, an agent still on an older `pw` refuses to write and says to update. Neither can damage the sheet.
+
+It writes the new headers to the right of the last one on `Receipts`. Tabs made by `pw init` have room. If someone has deleted the spare columns from that tab, add three first.
+
+After the upgrade, the next runs of the store importer fill in what the new columns are for:
+
+- **Totals, tax and savings on receipts already imported.** The importer answers from the copies it saved when it first downloaded them, and downloads up to 20 a run again where it has no copy. `pw trips` reports how many trips still lack a printed total as `trips_before_tax`.
+- **Price history.** It starts with the first run after the upgrade. Earlier prices were overwritten and cannot be recovered; what the household paid is still in its receipts.

@@ -13,7 +13,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from zoneinfo import ZoneInfo
 
 from costco_sync.models import NormalizedLine, RawLine, Receipt
-from costco_sync.money import CENT, REDUCTION_THRESHOLD, to_decimal
+from costco_sync.money import CENT, REDUCTION_THRESHOLD, money, to_decimal
 
 _PACIFIC = ZoneInfo("America/Los_Angeles")
 
@@ -44,7 +44,19 @@ def parse_receipt_detail(payload: dict) -> Receipt:
         warehouse_name=warehouse_name,
         occurred_on=occurred_on,
         lines=lines,
+        total=to_decimal(receipt.get("total")),
+        tax=to_decimal(receipt.get("taxes")),
+        instant_savings=to_decimal(receipt.get("instantSavings")),
     )
+
+
+def receipt_totals(receipt: Receipt) -> dict:
+    """What the receipt printed below its lines. Empty text where Costco did not say."""
+    return {
+        "total": money(receipt.total),
+        "tax": money(receipt.tax),
+        "instant_savings": money(receipt.instant_savings),
+    }
 
 
 def membership_number(payload: dict) -> str:

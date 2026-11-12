@@ -60,6 +60,9 @@ def upgrade(backend) -> dict:
     2.0 -> 2.1: `Sync` is keyed by store and account, and `Receipts` records
     which account a receipt came from. The existing importer row becomes the
     store's `primary` account and keeps refreshing prices.
+
+    2.1 -> 2.2: `Receipts` gains `tax` and `savings`, and the `PriceHistory`
+    tab is added, empty.
     """
     raw = backend.read(list(S.TABS))
     config = raw.get("Config") or []

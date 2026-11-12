@@ -96,8 +96,12 @@ def _item(wb: Workbook, key: str) -> dict:
 # -- apply -------------------------------------------------------------------
 
 
-def apply(wb: Workbook, ops: list[dict], by: str = "", raw: str = "", ref: str = "") -> list[dict]:
-    """Apply a batch from one chat message. One read, one commit."""
+def apply(wb: Workbook, ops: list[dict], by: str = "", raw: str = "", ref: str = "",
+          check: bool = False) -> list[dict]:
+    """Apply a batch from one chat message. One read, one commit.
+
+    With `check`, everything is validated and reported and nothing is written.
+    """
     wb.load("Config", "Sources", "List", "Items", "Log", "Questions", "Products")
     results = []
     for n, op in enumerate(ops):
@@ -116,8 +120,14 @@ def apply(wb: Workbook, ops: list[dict], by: str = "", raw: str = "", ref: str =
         op["by"] = _source(wb, "person", op["by"], op) if op.get("by") else ""
         if not op["by"] and name != "ask":  # an agent banks a question on its own
             raise PwError("Every operation needs `by`: the person who said it.")
-        result = handler(wb, op)
+        try:
+            result = handler(wb, op)
+        except PwError as e:
+            # Say which one, so a long batch does not have to be searched.
+            raise PwError(f"Operation {n + 1} of {len(ops)} ({name}): {e}") from None
         results.append(dict({"op": name}, **result))
+    if check:
+        return results
     expire(wb)
     wb.commit()
     return results
@@ -243,7 +253,7 @@ def op_new_item(wb, op):
     fields = _item_fields(wb, op)
     wb.append("Items", dict(fields, item=key, name=name))
     _log(wb, op, "set", key, "new item")
-    return {"item": key}
+    return {"item": key, "saved": dict(fields, name=name)}
 
 
 def op_set_item(wb, op):

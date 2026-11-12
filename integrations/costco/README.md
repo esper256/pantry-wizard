@@ -88,7 +88,7 @@ Grok Bot Secrets cannot feed this CLI. The refresh token has to be saved by `cos
 }
 ```
 
-`items` rows carry `item_id`, `canonical_name`, `aliases`, `purchase_intent` and `preferred_stores`. A product linked to an item appears in that item's `aliases` as `costco:<itemNumber>`. `retail_memory` has one row per product the household has bought at this warehouse, with the last price paid, the usual price, and the current offer. `known_source_refs` is the `source_ref` of every receipt line this importer already delivered. Re-running with those refs does not deliver the same line again. `priority_item_numbers` is present for a trip refresh, and empty for an account that does not refresh prices. `history_per_account` says the refs may include another account's receipts, so `history` decides between a full download and the gap from this account's own `history_from` and `history_through` alone.
+`items` rows carry `item_id`, `canonical_name`, `aliases`, `purchase_intent` and `preferred_stores`. A product linked to an item appears in that item's `aliases` as `costco:<itemNumber>`. `retail_memory` has one row per product the household has bought at this warehouse, with the last price paid, the usual price, and the current offer. `known_source_refs` is the `source_ref` of every receipt line this importer already delivered. Re-running with those refs does not deliver the same line again. `priority_item_numbers` is present for a trip refresh, and empty for an account that does not refresh prices. `history_per_account` says the refs may include another account's receipts, so `history` decides between a full download and the gap from this account's own `history_from` and `history_through` alone. `receipts_missing_totals` lists barcodes of receipts already in the sheet that have no printed total; the importer answers from its saved copies and downloads at most 20 a run again.
 
 These names are the importer's own. They are older than the sheet's current layout and do not have to match it; `pw/src/pantry_wizard/costco_bridge.py` translates in both directions, and `pw/tests/test_importer.py` runs this package through it.
 
@@ -96,9 +96,12 @@ These names are the importer's own. They are older than the sheet's current layo
 
 ```text
 generated_at
-receipts               new receipts: barcode, warehouse_number, date, and lines
+receipts               new receipts: barcode, warehouse_number, date, the printed
+                       total, tax and instant_savings, and lines
                        (source_ref, item_number, description, name, kind,
                        quantity, unit_price, instant_savings)
+receipt_totals         barcode, total, tax and instant_savings for receipts the
+                       snapshot listed under receipts_missing_totals
 retail_memory_upserts  rows where something changed: a price, a sale, stock, or a purchase
 checked_item_numbers   numbers Costco priced on this run, changed or not
 missed_item_numbers    numbers Costco answered for without a price
@@ -109,7 +112,7 @@ price_lookup           ok or failed
 events, new_items      the schema 0.3 form of receipts; new_items is always empty
 ```
 
-`pw sync apply costco mutations.json` is the only thing that applies it. It adds each receipt and its lines once, adds a product the first time its number appears and never rewrites it, replaces the offers, stamps `checked_at` for the checked numbers, fills an empty product link from `item_alias_updates`, and updates the importer's row without touching the lease. Applying the same file twice changes nothing.
+`pw sync apply costco mutations.json` is the only thing that applies it. It adds each receipt and its lines once, fills in a missing total on a receipt it imported earlier, adds a product the first time its number appears and never rewrites it, replaces the offers, appends a `PriceHistory` row where a price or sale changed, stamps `checked_at` for the checked numbers, fills an empty product link from `item_alias_updates`, and updates the importer's row without touching the lease. Applying the same file twice changes nothing.
 
 If Costco auth fails, do not apply an older mutation file over current prices.
 

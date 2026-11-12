@@ -49,10 +49,10 @@ The layout this replaces (schema 0.3: `Items`, `RetailMemory`, `Integrations`, `
 
 **`Receipts`** and **`Lines`**
 
-| receipt | store | date | total | lines | source | status |
-| --- | --- | --- | --- | --- | --- | --- |
-| example-warehouse:R0000001 | example-warehouse | 2026-01-12 | | 1 | import | recorded |
-| photo:corner-market:2026-01-10:23.40 | corner-market | 2026-01-10 | 23.40 | 1 | photo | recorded |
+| receipt | store | date | total | lines | source | status | tax | savings |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| example-warehouse:R0000001 | example-warehouse | 2026-01-12 | 8.68 | 1 | import | recorded | 0.69 | 2.00 |
+| photo:corner-market:2026-01-10:23.40 | corner-market | 2026-01-10 | 23.40 | 1 | photo | recorded | | |
 
 The import's `total` is blank because the importer does not read one.
 

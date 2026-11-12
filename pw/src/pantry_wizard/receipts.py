@@ -109,6 +109,7 @@ def ingest(wb: Workbook, rec: dict, by: str) -> dict:
         "receipt": key, "store": store, "date": date, "total": total, "lines": len(lines),
         "source": source, "status": status, "superseded_by": superseded_by,
         "by": by, "agent": wb.agent, "at": wb.stamp(), "account": rec.get("account", ""),
+        "tax": rec.get("tax", ""), "savings": rec.get("savings", ""),
     })
 
     products, items = wb.t("Products"), wb.t("Items")
