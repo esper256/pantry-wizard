@@ -1,4 +1,4 @@
-# Moving a household from schema 0.3 to 2.0
+# Moving a household from schema 0.3 to 2.x
 
 The migration reads the old workbook and writes a new one. The old sheet is never changed, so going back means pointing the agents at it again.
 
@@ -51,3 +51,16 @@ The migration reads the old workbook and writes a new one. The old sheet is neve
 - **Deposit lines.** `RetailMemory` rows whose receipt name starts with `CA REDEMP VAL` arrive as `not_product` with no offer, and are never priced again.
 - **Other standing rules.** Only "only if on sale" and "whenever in stock" are recognised in policy text. Set anything else, such as `only_at` or `max_price`, with `set_item` after the migration; the original text is in `keep`.
 - **`checked_at`.** The old sheet only stamped a row when its value changed, so migrated `checked_at` values can be older than the truth. The first sync fixes this.
+
+## From 2.0 to 2.1
+
+A sheet made by `pw` 2.0 is upgraded where it is. Nothing moves to a new sheet.
+
+1. Install `pw` 2.1 and, where it runs, `integrations/costco` from the same release, on every agent.
+2. On one agent: `pw upgrade`, then `pw doctor`.
+
+`pw upgrade` adds an `account` column to `Receipts` and rewrites `Sync` with `sync`, `account` and `prices` columns. The existing importer row becomes the store's `primary` account and keeps refreshing prices. No other row is touched, and running it twice does nothing. Every command keeps working without an `--account` flag.
+
+Between the two steps, an agent on 2.1 refuses to write and says to run `pw upgrade`. After step 2, an agent still on 2.0 refuses to write and says to update. Neither can damage the sheet.
+
+It writes the new header one column to the right of the last one on `Receipts`. Tabs made by `pw init` have room. If someone has deleted the spare columns from that tab, add one first.

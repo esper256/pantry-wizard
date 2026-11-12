@@ -231,3 +231,24 @@ def test_a_first_run_still_looks_back_90_days(tmp_path):
         assert long_lookback is True
     finally:
         store.close()
+
+
+def test_each_named_account_keeps_its_own_local_state(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from costco_sync.cli import state_path
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    assert state_path(None, None) == tmp_path / ".costco-sync" / "state.db"      # where it has always been
+    assert state_path(None, "second") == tmp_path / ".costco-sync" / "second" / "state.db"
+    assert state_path(tmp_path / "x.db", "second") == tmp_path / "x.db"
+
+
+def test_another_accounts_receipts_do_not_make_this_accounts_history_look_done():
+    from costco_sync.run import history_windows
+
+    snapshot = _snapshot([], known_source_refs=["costco:wh:B1:500"])
+    assert len(history_windows(snapshot, TODAY)) == 1               # a 0.3 sheet: refs mean history exists
+    assert len(history_windows(dict(snapshot, history_per_account=True), TODAY)) > 1
+    snapshot["integrations"][0]["history_through"] = "2026-11-01"
+    assert history_windows(dict(snapshot, history_per_account=True), TODAY) == [(date(2026, 11, 1), TODAY)]

@@ -19,7 +19,7 @@ from pantry_wizard import brief, costco_bridge, stats
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "integrations", "costco", "src"))
 try:
     from costco_sync.models import LeaseError, PriceLookupResult, PriceQuote
-    from costco_sync.run import import_windows
+    from costco_sync.run import history_windows, import_windows
     from costco_sync.sheetapply import validate_snapshot
     from costco_sync.store import StateStore
 except ImportError:  # pragma: no cover
@@ -29,9 +29,9 @@ TZ = timezone(timedelta(hours=-8))
 MORNING = datetime(2026, 11, 11, 8, 15, tzinfo=TZ)
 
 
-def payload(barcode, day, items):
+def payload(barcode, day, items, member="SECRET-MEMBER"):
     return {"transactionBarcode": barcode, "warehouseNumber": "663", "warehouseName": "Example City",
-            "transactionDate": day, "membershipNumber": "SECRET-MEMBER", "itemArray": items}
+            "transactionDate": day, "membershipNumber": member, "itemArray": items}
 
 
 RECEIPTS = {
@@ -53,12 +53,13 @@ class FakeCostco:
     def __init__(self):
         self.asked = []
         self.sale = {}
+        self.receipts = RECEIPTS
 
     def list_warehouse_receipts(self, start, end):
-        return {"receipts": [{"transactionBarcode": b} for b in RECEIPTS]}
+        return {"receipts": [{"transactionBarcode": b} for b in self.receipts]}
 
     def get_receipt_detail(self, barcode):
-        return RECEIPTS[barcode]
+        return self.receipts[barcode]
 
     def lookup_product_names(self, skus, warehouse):
         return {"1025795": "Kirkland Signature Eggs, 5 dozen"}
@@ -90,16 +91,62 @@ class ImporterTests(unittest.TestCase):
         costco_bridge.lease(book(self.be, MORNING), "costco", "test-bot",
                             location="663 Example City", status="setup")
 
-    def sync(self, now, trip=False, owner="test-bot"):
+    def sync(self, now, trip=False, owner="test-bot", account="", costco=None, state=None):
         wb = book(self.be, now)
         tier = brief.trip_tier(wb, "costco") if trip else None
-        snap = costco_bridge.snapshot(wb, "costco", (tier["tier0"] + tier["tier1"]) if tier else None)
+        snap = costco_bridge.snapshot(wb, "costco", (tier["tier0"] + tier["tier1"]) if tier else None,
+                                      account=account)
         snap = json.loads(json.dumps(snap))                    # it travels as a file
         self.assertEqual(validate_snapshot(snap), [])
-        result = import_windows(snap, self.costco, self.state,
+        result = import_windows(snap, costco or self.costco, state or self.state,
                                 windows=[(date(2026, 8, 1), now.date())], now=now, owner=owner)
         mutations = json.loads(json.dumps(result["mutations"]))
-        return costco_bridge.apply(book(self.be, now), mutations)
+        return costco_bridge.apply(book(self.be, now), mutations, account=account)
+
+    def test_two_memberships_feed_one_store(self):
+        self.sync(MORNING)
+        say(self.be, [{"op": "link", "product": "costco:1025795", "item": "eggs"}])
+
+        # Sam's card. Its receipts never show on the first login. Sam photographed one of them.
+        photo = receipt(self.be, "costco", "2026-11-05", [
+            {"sku": "1025795", "text": "KS 5DZ EGGS", "unit_price": "12.99"},
+            {"sku": "700", "text": "BUTTER", "unit_price": "11.99"}],
+            source="photo", total="24.98", by="sam", now=MORNING - timedelta(days=5))
+        sams = FakeCostco()
+        sams.receipts = {"S1105": payload("S1105", "2026-11-05", [
+            {"itemNumber": "1025795", "itemDescription01": "KS 5DZ EGGS", "amount": 12.99, "unit": 1},
+            {"itemNumber": "700", "itemDescription01": "BUTTER", "amount": 11.99, "unit": 1},
+        ], member="SAMS-MEMBER")}
+        sams_state = StateStore(Path(tempfile.mkdtemp()) / "state.db")
+        self.addCleanup(sams_state.close)
+        costco_bridge.lease(book(self.be, MORNING), "costco", "test-bot", location="663 Example City",
+                            account="sam")
+
+        # A first download for this account is the whole history, whatever the other one has imported.
+        first = json.loads(json.dumps(costco_bridge.snapshot(book(self.be, MORNING), "costco", account="sam")))
+        self.assertGreater(len(history_windows(first, MORNING.date())), 1)
+        again = json.loads(json.dumps(costco_bridge.snapshot(book(self.be, MORNING), "costco")))
+        self.assertEqual(len(history_windows(again, MORNING.date())), 1)
+
+        report = self.sync(MORNING, account="sam", costco=sams, state=sams_state)
+        self.assertEqual((report["account"], report["receipts"]), ("sam", 1))
+        self.assertEqual(report["superseded"], [photo["receipt"]])   # official copy, from either account
+        self.assertEqual(sams.asked, [])                             # prices are the first account's job
+
+        sync = {r["account"]: r for r in rows(self.be, "Sync")}
+        self.assertNotEqual(sync["primary"]["membership_fingerprint"], sync["sam"]["membership_fingerprint"])
+        self.assertEqual((sync["primary"]["history_through"], sync["sam"]["history_through"]),
+                         ("2026-10-27", "2026-11-05"))
+        eggs = stats.item_stats(book(self.be, MORNING), MORNING.date())["eggs"]
+        self.assertEqual((eggs["last_bought"], eggs["buys_12mo"]), ("2026-11-05", 3))   # both cards, once each
+
+        # The next morning each account runs again. Neither refuses the other, and
+        # the first one prices the butter only Sam has bought.
+        tomorrow = MORNING + timedelta(days=1)
+        self.assertEqual(self.sync(tomorrow, account="sam", costco=sams, state=sams_state)["receipts"], 0)
+        self.assertEqual(self.sync(tomorrow)["receipts"], 0)
+        self.assertIn("700", self.costco.asked[-1])
+        self.assertEqual({o["product"]: o["price"] for o in rows(self.be, "Offers")}["costco:700"], "9.99")
 
     def test_first_import_then_a_quiet_day_then_a_trip(self):
         # Sam photographed the Oct 27 receipt before Costco posted it, and

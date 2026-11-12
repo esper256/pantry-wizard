@@ -21,7 +21,24 @@ from costco_sync.run import (
 )
 from costco_sync.store import StateStore
 
-_DEFAULT_STATE = Path.home() / ".costco-sync" / "state.db"
+
+
+def state_path(state: Path | None, account: str | None) -> Path:
+    """Where this account's cursor, receipt cache and price schedule live.
+
+    A named account gets its own folder, so two memberships on one computer
+    never share a cursor. A run with no account name keeps the original path.
+    """
+    if state is not None:
+        return state
+    home = Path.home() / ".costco-sync"
+    return home / account / "state.db" if account else home / "state.db"
+
+
+_STATE_HELP = (
+    "Local SQLite path. Default ~/.costco-sync/state.db, or "
+    "~/.costco-sync/<account>/state.db when --account is given"
+)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -56,7 +73,7 @@ def main(argv: list[str] | None = None) -> int:
     apply.add_argument("--events-out", required=True, type=Path, help="Events that still need appending")
 
     warehouses = sub.add_parser("warehouses", help="List recent warehouses and receipt counts")
-    warehouses.add_argument("--state", type=Path, default=_DEFAULT_STATE, help="Local SQLite path")
+    warehouses.add_argument("--state", type=Path, default=None, help=_STATE_HELP)
     warehouses.add_argument("--account", default=None, help="costco-mcp account name")
     warehouses.add_argument("--now", default=None, help="Override the clock, ISO-8601, for tests")
     warehouses.add_argument("--since", default=None, help="First day, YYYY-MM-DD. Default is 180 days ago")
@@ -112,7 +129,7 @@ def main(argv: list[str] | None = None) -> int:
 def _add_io(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--snapshot", required=True, type=Path, help="Household snapshot JSON")
     parser.add_argument("--out", required=True, type=Path, help="Mutation file to write")
-    parser.add_argument("--state", type=Path, default=_DEFAULT_STATE, help="Local SQLite path")
+    parser.add_argument("--state", type=Path, default=None, help=_STATE_HELP)
     parser.add_argument("--account", default=None, help="costco-mcp account name")
     parser.add_argument("--owner", default="", help="Bot identity compared with Integrations.owner")
     parser.add_argument("--now", default=None, help="Override the clock, ISO-8601, for tests")
@@ -193,7 +210,7 @@ def _apply(args: argparse.Namespace) -> int:
 
 
 def _warehouses(args: argparse.Namespace) -> int:
-    store = StateStore(args.state)
+    store = StateStore(state_path(args.state, args.account))
     try:
         today = _today(args.now)
         since = date.fromisoformat(args.since) if args.since else None
@@ -210,7 +227,7 @@ def _warehouses(args: argparse.Namespace) -> int:
 
 
 def _run(args: argparse.Namespace) -> int:
-    store = StateStore(args.state)
+    store = StateStore(state_path(args.state, args.account))
     try:
         today = _today(args.now)
         start, end, long_lookback = run_window(today, store)
@@ -238,7 +255,7 @@ def _backfill(args: argparse.Namespace) -> int:
     if start > end:
         print("--start must be on or before --end", file=sys.stderr)
         return 1
-    store = StateStore(args.state)
+    store = StateStore(state_path(args.state, args.account))
     try:
         mutations = write_import(
             args.snapshot,
@@ -257,7 +274,7 @@ def _backfill(args: argparse.Namespace) -> int:
 
 
 def _history(args: argparse.Namespace) -> int:
-    store = StateStore(args.state)
+    store = StateStore(state_path(args.state, args.account))
     try:
         mutations = write_history(
             args.snapshot,

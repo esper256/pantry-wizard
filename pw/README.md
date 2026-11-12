@@ -17,7 +17,7 @@ cd pw && PYTHONPATH=src:tests python -m unittest discover -s tests    # no netwo
 | `stats.py` | purchases per item, buying rhythm, the stock word |
 | `brief.py` | trip brief, the confirmed-deal rule, relevance, change detection, trip refresh tier |
 | `costco_bridge.py` | snapshot for the importer, applying its mutation file, the lease |
-| `migrate.py` | empty workbook, and schema 0.3 to 2.0 |
+| `migrate.py` | empty workbook, schema 0.3 to 2.x, and `pw upgrade` between 2.x layouts |
 | `cli.py` | the `pw` command, `doctor`, the operations log |
 
 Try it without Google:

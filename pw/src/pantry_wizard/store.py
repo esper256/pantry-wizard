@@ -26,7 +26,8 @@ class Table:
         self.header = list(raw[0]) if raw else list(self.tab.columns)
         missing = [c for c in self.tab.columns if c not in self.header]
         if missing:
-            raise PwError(f"{name} is missing columns {missing}. Run `pw init` or `pw migrate`.")
+            raise PwError(f"{name} is missing columns {missing}. If this sheet is on an older "
+                          "schema, run `pw upgrade`. A new, empty sheet needs `pw init`.")
         self.rows: list[dict] = []
         for n, values in enumerate(raw[1:], start=2):
             row = {h: (values[i] if i < len(values) else "") for i, h in enumerate(self.header)}
@@ -160,7 +161,8 @@ class Workbook:
             if have != SCHEMA_VERSION:
                 raise PwError(
                     f"This sheet is schema {have or 'unknown'} and this pw writes {SCHEMA_VERSION}. "
-                    "Nothing was written. Update pw or migrate the sheet."
+                    "Nothing was written. If the sheet is older, run `pw upgrade`. If pw is older, "
+                    "install the release the sheet was upgraded with."
                 )
         appends = {}
         for name, rows in self._appends.items():

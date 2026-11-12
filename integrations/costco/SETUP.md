@@ -21,7 +21,7 @@ If `membership_fingerprint` is already set, a later download from a different me
 ## 2. Install the CLI
 
 ```bash
-pip install "git+https://github.com/esper256/pantry-wizard@v2.0.0#subdirectory=integrations/costco"
+pip install "git+https://github.com/esper256/pantry-wizard@v2.1.0#subdirectory=integrations/costco"
 ```
 
 Use the same release as your `pw`. Computer Update, Recover, and Reset remove installed packages, so every later run installs both again first.
@@ -124,3 +124,35 @@ Only after the summary has been said, save the daily routine:
 The daily run prices one paced batch on its own schedule and takes about four minutes. Do not try to make it check everything. A trip uses the short refresh in `AGENT_INSTRUCTIONS.md` instead: the same three commands with `--trip` on the snapshot.
 
 Setup is finished when that summary has been said. The next “I’m going to Costco” question then has history to read.
+
+## A second account
+
+Do this when the household has another Costco membership, or a card whose receipts do not show in the first login’s Orders & Purchases. Its purchases then arrive by themselves, on the same products, prices and history as the first account’s. Do not register it as a separate store.
+
+Choose a short label for it with the person, such as `second` or a first name. Use that label for `--account` in every command below. The first account is called `primary` and needs no flag.
+
+1. Log in as in step 3, with that membership’s own `secret`, under the label:
+   ```bash
+   costco-sync auth --account second --storage-key '<key name>' --refresh-token-stdin < /tmp/costco-refresh-token
+   costco-sync warehouses --account second
+   ```
+2. Confirm the warehouse as in step 4, then add the account. A new label is what adds it:
+   ```bash
+   pw sync lease costco --account second --location "121 Foster City" --status setup
+   ```
+3. Download and apply as in steps 5 to 7, naming the account each time. This is that account’s whole history, however much the first account has already imported:
+   ```bash
+   pw sync snapshot costco --account second > household-second.json
+   costco-sync history --account second --snapshot household-second.json --out mutations-second.json --owner $PW_AGENT
+   pw sync apply costco mutations-second.json --account second
+   pw sync lease costco --account second --status active
+   ```
+4. Add the same three commands, with `costco-sync run` in place of `history`, to the daily routine after the first account’s. One Bot running every account is the simplest arrangement. A different Bot can run the second account instead; each account has its own lease.
+
+What to expect:
+
+- `costco-sync --account second` keeps its cursor and receipt cache in `~/.costco-sync/second/`, and its login under that account name, apart from the first account’s.
+- Only the first account refreshes prices. The second account’s run asks Costco for no prices, so it is short, and its summary reports receipts only. To move the price refresh, for example when the first membership lapses: `pw sync lease costco --account second --prices`.
+- If a receipt was already logged from a photo, the official copy from either account replaces it.
+- `pw sync apply` refuses a file downloaded with a different membership than the account it is told to apply to. That means an `--account` was left off. Nothing was written; run it again with the flag.
+- A trip refresh needs no flag. It uses the account that refreshes prices.

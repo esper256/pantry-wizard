@@ -15,7 +15,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-SCHEMA_VERSION = "2.0"
+SCHEMA_VERSION = "2.1"
+# Layouts `pw upgrade` can bring up to SCHEMA_VERSION in place.
+UPGRADABLE = ("2.0",)
 
 
 @dataclass(frozen=True)
@@ -91,7 +93,7 @@ TABS: dict[str, Tab] = {
             "Receipts",
             (
                 "receipt", "store", "date", "total", "lines", "source",
-                "status", "superseded_by", "by", "agent", "at",
+                "status", "superseded_by", "by", "agent", "at", "account",
             ),
             "importer",
         ),
@@ -106,9 +108,12 @@ TABS: dict[str, Tab] = {
         Tab(
             "Sync",
             (
-                "store", "status", "location", "membership_fingerprint",
-                "owner", "lease_until", "history_from", "history_through",
-                "last_sync_at", "last_summary",
+                # One row per store account: `costco:primary`, `costco:second`.
+                # Each has its own membership, lease and history. `prices` is
+                # `yes` on the one account per store that refreshes Offers.
+                "sync", "store", "account", "prices", "status", "location",
+                "membership_fingerprint", "owner", "lease_until", "history_from",
+                "history_through", "last_sync_at", "last_summary",
             ),
             "importer",
         ),

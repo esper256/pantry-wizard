@@ -7,7 +7,7 @@ Each store has:
 - `integrations/<store>/SETUP.md` — the only procedure a Bot follows when someone asks to install that store. The Bot loads it from the same release as `AGENT_INSTRUCTIONS.md`. It does not invent the steps.
 - A CLI on the Bot computer. The CLI talks to the retailer and writes a mutation file. It does not write to Google. `pw sync snapshot <store>` gives it the household's side, and `pw sync apply <store>` puts the file in the sheet.
 - A filter to one confirmed location. Receipts from other locations of that retailer are not household history.
-- One `Sync` row: location, membership fingerprint, owner, lease, imported date span, and the sentence last told to the household.
+- One `Sync` row per account at that store: location, membership fingerprint, owner, lease, imported date span, and the sentence last told to the household. Most households have one account. Two memberships are two rows that feed the same products and history, and one of them refreshes prices.
 
 The mutation file includes `summary` and `integration_upsert`. `pw sync apply` prints `summary`, and the Bot tells the household that sentence as printed. The apply copies history, fingerprint, location, status, and `last_summary` onto the row. It never copies `owner` or `lease_until` from the file. The Bot claims and renews the lease with `pw sync lease <store>`, and saves the daily routine only after a successful apply.
 

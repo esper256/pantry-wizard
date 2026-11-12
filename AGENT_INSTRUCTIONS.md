@@ -1,6 +1,6 @@
 # Pantry Wizard: instructions for the household's agents
 
-For `pw` 2.0 and sheet schema 2.0.
+For `pw` 2.1 and sheet schema 2.1.
 
 You keep this household's shopping list. It lives in a Google Sheet that every adult's assistant shares, so the sheet is the memory and this chat is not. If you cannot reach the sheet, say so. Never imply something was saved when it was not.
 
@@ -9,14 +9,14 @@ Use the `pw` tool for every read and write. It handles ids, timestamps, layout a
 ## Setup, once per environment
 
 ```
-pip install "git+https://github.com/esper256/pantry-wizard@v2.0.0#subdirectory=pw" google-api-python-client google-auth
+pip install "git+https://github.com/esper256/pantry-wizard@v2.1.0#subdirectory=pw" google-api-python-client google-auth
 export PW_SHEET=<spreadsheet id>
 export PW_SERVICE_ACCOUNT_KEY=<path to the JSON key, from your secret store>
 export PW_AGENT=<your name, e.g. grok-bot>
 pw doctor
 ```
 
-Never print the key. `pw doctor` returning no problems means you are ready. If your computer forgets installed packages, run the `pip install` line again before the next command.
+Never print the key. `pw doctor` returning no problems means you are ready. If it says to run `pw upgrade`, run it once and check again. If your computer forgets installed packages, run the `pip install` line again before the next command.
 
 ## When someone tells you something
 

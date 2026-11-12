@@ -131,6 +131,70 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(costco_bridge.apply(book(be), update)["links_filled"], 0)
         self.assertEqual(rows(be, "Products")[0]["item"], "ketchup")
 
+    def test_a_second_account_has_its_own_row_lease_and_membership(self):
+        be = household()
+        setup_store(be)
+        first = dict(MUTATION, integration_upsert=dict(MUTATION["integration_upsert"], membership_fingerprint="aaa"))
+        costco_bridge.apply(book(be), first)
+        # Another agent runs the second membership. Neither lease is in the other's way.
+        added = costco_bridge.lease(book(be), "costco", "bot-b", location="000 Example City", account="Second")
+        self.assertEqual((added["sync"], added["prices"], added["owner"]), ("costco:second", "", "bot-b"))
+        self.assertEqual(costco_bridge.lease(book(be), "costco", "test-bot")["sync"], "costco:primary")
+        with self.assertRaises(PwError):
+            costco_bridge.lease(book(be), "costco", "test-bot", account="second")
+
+        second = {
+            "generated_at": "2026-11-12T09:00:00-08:00",
+            "receipts": [{"barcode": "BARCODE2", "date": "2026-11-12", "lines": [
+                {"source_ref": "costco:wh:BARCODE2:1025795", "item_number": "1025795",
+                 "description": "KS 5DZ EGGS", "kind": "purchase", "quantity": "1", "unit_price": "12.49"}]}],
+            # It bought eggs, so the importer resends the row. Prices are not this account's to write.
+            "retail_memory_upserts": [dict(EGGS, current_price="1.00", baseline_unit_price="12.49")],
+            "checked_item_numbers": ["1025795"],
+            "integration_upsert": {"status": "active", "membership_fingerprint": "bbb",
+                                   "history_from": "2026-11-12", "history_through": "2026-11-12"},
+            "summary": {"text": "Imported 1 Costco receipts."},
+        }
+        with self.assertRaises(PwError) as wrong:      # forgot to say which account
+            costco_bridge.apply(book(be), second)
+        self.assertIn("different membership", str(wrong.exception))
+        report = costco_bridge.apply(book(be), second, account="second")
+        self.assertEqual((report["account"], report["receipts"], report["offers_written"]), ("second", 1, 0))
+
+        sync = {r["sync"]: r for r in rows(be, "Sync")}
+        self.assertEqual([(r["membership_fingerprint"], r["owner"], r["history_through"], r["prices"])
+                          for r in (sync["costco:primary"], sync["costco:second"])],
+                         [("aaa", "test-bot", "2026-11-11", "yes"), ("bbb", "bot-b", "2026-11-12", "")])
+        receipts = {r["receipt"]: r["account"] for r in rows(be, "Receipts")}
+        self.assertEqual(receipts, {"costco:BARCODE1": "primary", "costco:BARCODE2": "second"})
+        offer = rows(be, "Offers")[0]
+        self.assertEqual((offer["price"], offer["usual_price"], offer["checked_at"]),
+                         ("11.49", "12.99", "2026-11-11T08:20:00-08:00"))
+        # One product, one history.
+        self.assertEqual([p["product"] for p in rows(be, "Products") if p["sku"] == "1025795"], ["costco:1025795"])
+        from pantry_wizard import stats
+        paid = stats.product_stats(book(be), NOW.date())["costco:1025795"]
+        self.assertEqual((len(paid["dates"]), paid["last_paid"]), (2, "12.49"))
+
+        # The second account is told every receipt line either account imported, and to price nothing.
+        snap = costco_bridge.snapshot(book(be), "costco", priority=["1025795"], account="second")
+        self.assertEqual(snap["priority_item_numbers"], [])
+        self.assertIn("costco:wh:BARCODE1:1025795", snap["known_source_refs"])
+        self.assertEqual((snap["integrations"][0]["membership_fingerprint"], snap["integrations"][0]["owner"]),
+                         ("bbb", "bot-b"))
+        # With no account named, a command means the one that refreshes prices.
+        self.assertEqual(costco_bridge.snapshot(book(be), "costco", priority=["1025795"])["priority_item_numbers"],
+                         ["1025795"])
+        with self.assertRaises(PwError):
+            costco_bridge.snapshot(book(be), "costco", account="third")
+
+    def test_the_price_refresh_can_move_to_another_account(self):
+        be = household()
+        setup_store(be)
+        costco_bridge.lease(book(be), "costco", "test-bot", account="second")
+        costco_bridge.lease(book(be), "costco", "test-bot", account="second", prices=True)
+        self.assertEqual({r["account"]: r["prices"] for r in rows(be, "Sync")}, {"primary": "", "second": "yes"})
+
     def test_a_file_from_an_older_importer_is_refused(self):
         be = household()
         setup_store(be)

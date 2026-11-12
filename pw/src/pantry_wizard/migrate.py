@@ -17,9 +17,9 @@ from __future__ import annotations
 import re
 
 from . import schema as S
-from .costco_bridge import DEPOSIT_PREFIXES, IMPORTER
+from .costco_bridge import DEFAULT_ACCOUNT, DEPOSIT_PREFIXES, IMPORTER
 from .ops import slug, split_list
-from .store import Workbook
+from .store import PwError, Workbook
 
 IMPORTER_ACTORS = {"costco-sync", "membership import"}
 OBSERVATION_TYPES = {
@@ -48,6 +48,50 @@ def init(backend, timezone: str = "", currency: str = "") -> None:
     replaces = {name: [list(tab.columns)] for name, tab in S.TABS.items()}
     replaces["Config"] = config
     backend.commit({}, [], replaces)
+
+
+def upgrade(backend) -> dict:
+    """Bring a workbook on an earlier 2.x layout up to this one, in place.
+
+    Only adds: new columns go on the end of a header row, and `Sync`, which is
+    rewritten whole on every sync anyway, is rewritten in its new shape. No
+    household row is touched.
+
+    2.0 -> 2.1: `Sync` is keyed by store and account, and `Receipts` records
+    which account a receipt came from. The existing importer row becomes the
+    store's `primary` account and keeps refreshing prices.
+    """
+    raw = backend.read(list(S.TABS))
+    config = raw.get("Config") or []
+    at = next((n for n, r in enumerate(config, start=1) if r and r[0] == "schema_version"), None)
+    have = config[at - 1][1] if at and len(config[at - 1]) > 1 else ""
+    if have == S.SCHEMA_VERSION:
+        return {"schema": have, "changed": []}
+    if have not in S.UPGRADABLE:
+        raise PwError(f"Cannot upgrade a sheet on schema {have or 'unknown'}. Nothing was changed. "
+                      "A schema 0.3 workbook moves to a new sheet; see docs/MIGRATION.md.")
+    cells, replaces, changed = [], {}, []
+    for name, tab in S.TABS.items():
+        header = (raw.get(name) or [[]])[0]
+        missing = [c for c in tab.columns if c not in header]
+        if not missing:
+            continue
+        changed.append(f"{name}: + {', '.join(missing)}")
+        if name == "Sync":
+            rows = []
+            for old in _dicts(raw[name]):
+                row = dict(old, sync=f'{old["store"]}:{DEFAULT_ACCOUNT}', account=DEFAULT_ACCOUNT, prices="yes")
+                rows.append([row.get(c, "") for c in tab.columns])
+            replaces[name] = [list(tab.columns)] + rows
+        elif not header:
+            replaces[name] = [list(tab.columns)]
+        else:
+            cells += [(name, 1, len(header) + n, column, header[0]) for n, column in enumerate(missing)]
+    cells.append(("Config", at, 1, S.SCHEMA_VERSION, "schema_version"))
+    if hasattr(backend, "ensure_tabs"):
+        backend.ensure_tabs(S.TABS)
+    backend.commit({}, cells, replaces)
+    return {"schema": S.SCHEMA_VERSION, "was": have, "changed": changed}
 
 
 def _dicts(rows: list[list[str]]) -> list[dict]:
@@ -240,8 +284,9 @@ def migrate(old: dict[str, list[list[str]]], backend, once: list[str] | None = N
     for row in _dicts(old.get("Integrations", [])):
         store = source("store", row.get("store") or row["integration_key"])
         wb.append("Sync", {
-            "store": store,
-            **{c: row.get(c, "") for c in S.TABS["Sync"].columns if c != "store"},
+            **{c: row.get(c, "") for c in S.TABS["Sync"].columns},
+            "sync": f"{store}:{DEFAULT_ACCOUNT}", "store": store, "account": DEFAULT_ACCOUNT,
+            "prices": "yes",
         })
 
     wb.commit()
