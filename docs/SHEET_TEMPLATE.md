@@ -37,6 +37,12 @@ The layout this replaces (schema 0.3: `Items`, `RetailMemory`, `Integrations`, `
 | c1f0… | 2026-01-14T09:20:00-08:00 | sam | Sam is vegetarian | open |
 | d7a2… | 2026-01-14T09:21:00-08:00 | alex | Milk always means oat milk | open |
 
+**`Accounts`** (usually empty; `key` is filled only to bootstrap a bot that cannot be handed a key file)
+
+| account | email | key | note |
+| --- | --- | --- | --- |
+| grok-bot | pantry-grok@example-project.iam.gserviceaccount.com | | shared with this account's email |
+
 **`Log`**
 
 | id | at | by | agent | item | kind | value | raw |

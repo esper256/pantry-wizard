@@ -59,7 +59,7 @@ def _backend(args):
     sheet = args.sheet or os.environ.get("PW_SHEET")
     if not sheet:
         raise PwError("Say which sheet: --sheet ID, the PW_SHEET variable, or --file for a JSON workbook.")
-    return SheetsBackend(sheet)
+    return SheetsBackend(sheet, agent=args.agent)
 
 
 def _out(value) -> None:
@@ -108,6 +108,16 @@ def doctor(wb: Workbook) -> list[str]:
 
 
 def run(args) -> None:
+    if args.cmd == "bootstrap":
+        from . import credentials
+        sheet = args.sheet or os.environ.get("PW_SHEET")
+        if not sheet:
+            raise PwError("Set PW_SHEET (or pass --sheet) to the id of the sheet holding the Accounts tab.")
+        found = credentials.resolve(sheet, args.agent, force=args.force)
+        _out({"agent": args.agent, "source": found["source"], "cached_to": found["cache_path"],
+              "next": "The key is cached. You can restore the sheet to private now."
+                      if found["source"] == "bootstrap" else "Already set up; nothing re-read."})
+        return
     backend = _backend(args)
     wb = Workbook(backend, agent=args.agent)
     cmd = args.cmd
@@ -214,7 +224,10 @@ def run(args) -> None:
             SheetsBackend(args.old_sheet).read(["Config", "Items", "RetailMemory", "Integrations", "Events"])
         _out(migrate_mod.migrate(old, backend, once=args.once, people=args.person, stores=args.store_name))
     elif cmd == "doctor":
-        _out({"problems": doctor(wb)})
+        report = {"problems": doctor(wb)}
+        if hasattr(backend, "cred_source"):
+            report["credentials"] = backend.cred_source
+        _out(report)
     _log_op(args, backend)
 
 
@@ -297,6 +310,9 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--reset", action="store_true", help="wipe the new workbook first, e.g. to re-run")
     sub.add_parser("upgrade", help="bring a sheet on an older 2.x schema up to this pw, in place")
     sub.add_parser("doctor", help="check the sheet for broken references")
+    s = sub.add_parser("bootstrap", help="read this agent's service-account key from the sheet's "
+                                         "Accounts tab and cache it locally")
+    s.add_argument("--force", action="store_true", help="re-read the sheet and overwrite the cached key")
     return p
 
 

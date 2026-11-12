@@ -1,4 +1,4 @@
-# Sheet schema 2.3
+# Sheet schema 2.4
 
 Reference for people changing `pw`. Agents do not need this page: they use `pw` commands and never address a tab or column themselves. The definitions live in `pw/src/pantry_wizard/schema.py`; if this page and that file disagree, the file is right.
 
@@ -22,6 +22,7 @@ Reference for people changing `pw`. Agents do not need this page: they use `pw` 
 | `Log` | observation or audit entry | `id` | agents | append only |
 | `Questions` | banked judgment call | `id` | agents ask, people answer | append; set `answer`, `status` |
 | `Notes` | standing fact about the household | `id` | agents | append; set `status` |
+| `Accounts` | service account that may reach the sheet | `account` | the household, by hand | read by `pw` to bootstrap credentials |
 | `Products` | store product | `product` (`costco:1025795`) | appended the first time a SKU is seen on a receipt; agents set `item`, `kind`, `pack_qty`, `unit` | never rewritten |
 | `Offers` | product's current price and stock | `product` | importer only | replaced |
 | `Receipts` | receipt | `receipt` | importer, receipt operation | append; set `status` |
@@ -40,6 +41,8 @@ Reference for people changing `pw`. Agents do not need this page: they use `pw` 
 **`Log`.** `kind` is `out`, `low`, `last_one`, `plenty`, `have`, `used`, `bought`, `remark`, `said`, `set` or `fix`. The newest observation per item is the stock evidence. `remark` is a free observation tied to no single item ("the kids are sick of granola bars"); it carries no stock meaning and is found through `pw said`. `set` rows are written by `pw` whenever an item or product is changed, with who asked and their words.
 
 **`Notes`.** A standing fact about the household that is not a request or an observation: "Sam is vegetarian", "milk means oat milk". `status` is `open` or `retired`. Agents read them through `pw context` to interpret what people say; they never change the list or stock.
+
+**`Accounts`.** One row per service account that may reach the sheet, keyed by the agent's `PW_AGENT` name. `email` is the account's address, to share the sheet with. `key` holds the account's JSON, filled by the household only to bootstrap a bot that cannot be handed a secret file (`pw bootstrap`); `pw` reads it once and caches it locally. The account is scoped to this one sheet and nothing else, so the key is low value by design — but `pw` never prints it and keeps this tab out of `pw sql`, `pw schema` and `pw context` all the same.
 
 **`Products`.** `kind` is blank (unclassified), `consumable`, `once`, `seasonal` or `not_product` (deposits, fees). Blank lets behaviour decide: bought on two or more dates in the last year counts as a habit. `item` links the product to a household item. One item can have many products.
 

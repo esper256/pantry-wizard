@@ -80,23 +80,26 @@ class SheetsBackend:
     itself; `pw doctor` on a copy of a sheet is the first real check.
     """
 
-    def __init__(self, spreadsheet_id: str, key_path: str | None = None, api=None):
+    def __init__(self, spreadsheet_id: str, key_path: str | None = None, api=None, agent: str = "pw"):
         self.id = spreadsheet_id
-        self.api = api or self._connect(key_path)
+        self.cred_source = "provided"
+        self.api = api or self._connect(key_path, agent)
         self.read_calls = 0
         self.write_calls = 0
 
-    @staticmethod
-    def _connect(key_path: str | None):
+    def _connect(self, key_path: str | None, agent: str):
         from google.oauth2 import service_account  # imported here so tests need no Google packages
         from googleapiclient.discovery import build
 
-        key_path = key_path or os.environ.get("PW_SERVICE_ACCOUNT_KEY")
-        if not key_path:
-            raise PwError("Set PW_SERVICE_ACCOUNT_KEY to the path of the service-account JSON key.")
-        creds = service_account.Credentials.from_service_account_file(
-            key_path, scopes=["https://www.googleapis.com/auth/spreadsheets"]
-        )
+        from . import credentials
+        found = credentials.resolve(self.id, agent, key_path=key_path)
+        self.cred_source = found["source"]
+        if found["key_file"]:
+            creds = service_account.Credentials.from_service_account_file(
+                found["key_file"], scopes=credentials.SCOPES)
+        else:
+            creds = service_account.Credentials.from_service_account_info(
+                found["info"], scopes=credentials.SCOPES)
         return build("sheets", "v4", credentials=creds, cache_discovery=False).spreadsheets()
 
     def _run(self, request):

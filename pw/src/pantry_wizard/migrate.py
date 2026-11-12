@@ -66,6 +66,9 @@ def upgrade(backend) -> dict:
 
     2.2 -> 2.3: `List` gains `any_of` (item keys any one of which satisfies a
     request), and the `Notes` tab is added, empty.
+
+    2.3 -> 2.4: the `Accounts` tab is added, empty. It only ever adds what is
+    missing, so a sheet two or three versions back reaches here in one run.
     """
     raw = backend.read(list(S.TABS))
     config = raw.get("Config") or []

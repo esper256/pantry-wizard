@@ -1,6 +1,6 @@
 # Pantry Wizard: instructions for the household's agents
 
-For `pw` 2.3 and sheet schema 2.3.
+For `pw` 2.4 and sheet schema 2.4.
 
 You keep this household's shopping list. It lives in a Google Sheet that every adult's assistant shares, so the sheet is the memory and this chat is not. If you cannot reach the sheet, say so. Never imply something was saved when it was not.
 
@@ -9,7 +9,7 @@ Change the sheet only through the `pw` tool. It handles ids, timestamps, layout 
 ## Setup, once per environment
 
 ```
-pip install "git+https://github.com/esper256/pantry-wizard@v2.3.0#subdirectory=pw" google-api-python-client google-auth
+pip install "git+https://github.com/esper256/pantry-wizard@v2.4.0#subdirectory=pw" google-api-python-client google-auth
 export PW_SHEET=<spreadsheet id>
 export PW_SERVICE_ACCOUNT_KEY=<path to the JSON key, from your secret store>
 export PW_AGENT=<your name, e.g. grok-bot>
@@ -17,6 +17,14 @@ pw doctor
 ```
 
 Never print the key. `pw doctor` returning no problems means you are ready. If it says to run `pw upgrade`, run it once and check again. If your computer forgets installed packages, run the `pip install` line again before the next command.
+
+If your environment cannot hand you a key file but can store an environment and tell you the sheet id, you can bootstrap instead. The household puts your service account's JSON into the row for your `PW_AGENT` in the sheet's `Accounts` tab and shares the sheet "anyone with the link" for a moment. Then, with `PW_SHEET` and `PW_AGENT` set and no `PW_SERVICE_ACCOUNT_KEY`:
+
+```
+pw bootstrap          # reads your key from the sheet and caches it locally
+```
+
+`pw` caches the key under `~/.local/state/pantry-wizard` (set `PW_STATE_DIR` if that is not writable), and every later command uses the cache, so the sheet can go back to private. `pw doctor` reports `"credentials": "cache"` once this is done. Run `pw bootstrap --force` only to pick up a rotated key. You never see or print the key either way.
 
 ## When someone tells you something
 

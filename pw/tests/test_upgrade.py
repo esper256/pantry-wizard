@@ -25,7 +25,7 @@ def sheet_on_2_0():
     be.tabs["Sync"] = [OLD_SYNC, ["costco", "active", "663 Example City", "abc", "grok-bot",
                                   "2026-11-12T20:00:00-08:00", "2023-09-26", "2026-10-13",
                                   "2026-11-11T08:20:00-08:00", "No new receipts."]]
-    _strip_2_3(be)
+    _strip_new(be)
     return be
 
 
@@ -40,15 +40,28 @@ def sheet_on_2_1():
     be.tabs["Receipts"] = [r[:-2] for r in be.tabs["Receipts"]]
     assert be.tabs["Receipts"][0][-1] == "account"
     del be.tabs["PriceHistory"]
-    _strip_2_3(be)
+    _strip_new(be)
     return be
 
 
-def _strip_2_3(be):
-    """Remove what 2.3 added: the List `any_of` column and the Notes tab."""
+def sheet_on_2_2():
+    """A household as pw 2.2.0 left it: accounts, tax, savings and price history, but no
+    `any_of`, Notes or Accounts. It must reach 2.4 in one upgrade, skipping 2.3."""
+    be = household()
+    receipt(be, "costco", "2026-10-13", [{"sku": "1025795", "text": "KS 5DZ EGGS"}], rid="B1")
+    for r in be.tabs["Config"]:
+        if r[0] == "schema_version":
+            r[1] = "2.2"
+    _strip_new(be)
+    return be
+
+
+def _strip_new(be):
+    """Remove what 2.3 and 2.4 added: List `any_of`, the Notes tab, the Accounts tab."""
     be.tabs["List"] = [r[:-1] for r in be.tabs["List"]]
     assert "any_of" not in be.tabs["List"][0]
     del be.tabs["Notes"]
+    del be.tabs["Accounts"]
 
 
 class UpgradeTests(unittest.TestCase):
@@ -62,15 +75,32 @@ class UpgradeTests(unittest.TestCase):
         self.assertEqual((report["was"], report["schema"]), ("2.1", SCHEMA_VERSION))
         self.assertEqual(report["changed"], [
             "List: + any_of",
+            "Accounts: + " + ", ".join(TABS["Accounts"].columns),
             "Notes: + " + ", ".join(TABS["Notes"].columns),
             "Receipts: + tax, savings",
             "PriceHistory: + " + ", ".join(TABS["PriceHistory"].columns)])
         self.assertEqual(be.tabs["Sync"], sync)
+        self.assertEqual(be.tabs["Accounts"], [list(TABS["Accounts"].columns)])
         self.assertEqual(be.tabs["Notes"], [list(TABS["Notes"].columns)])
         self.assertEqual(be.tabs["PriceHistory"], [list(TABS["PriceHistory"].columns)])
         self.assertEqual(doctor(book(be)), [])
         self.assertEqual(rows(be, "Receipts")[0]["receipt"], "costco:B1")
         self.assertEqual(costco_bridge.snapshot(book(be), "costco")["receipts_missing_totals"], ["B1"])
+
+    def test_a_2_2_sheet_reaches_2_4_in_one_upgrade_skipping_2_3(self):
+        be = sheet_on_2_2()
+        report = migrate.upgrade(be)
+        self.assertEqual((report["was"], report["schema"]), ("2.2", SCHEMA_VERSION))
+        # Only what 2.3 and 2.4 added; nothing from 2.1/2.2, which it already has.
+        self.assertEqual(report["changed"], [
+            "List: + any_of",
+            "Accounts: + " + ", ".join(TABS["Accounts"].columns),
+            "Notes: + " + ", ".join(TABS["Notes"].columns)])
+        for name in ("any_of",):
+            self.assertIn(name, be.tabs["List"][0])
+        self.assertEqual(be.tabs["Accounts"], [list(TABS["Accounts"].columns)])
+        self.assertEqual(be.tabs["Notes"], [list(TABS["Notes"].columns)])
+        self.assertEqual(doctor(book(be)), [])
 
     def test_an_older_sheet_is_refused_until_it_is_upgraded(self):
         be = sheet_on_2_0()

@@ -53,7 +53,7 @@ After you have the key, tell me the client_email and have me share this sheet wi
 Take the JSON key as a file I attach, or through a secure field. Store it as a bot secret. Do not ask me to paste the private key into the chat, and do not print the key.
 
 Then load these instructions and follow them from now on, in every chat about shopping:
-https://raw.githubusercontent.com/esper256/pantry-wizard/v2.3.0/AGENT_INSTRUCTIONS.md
+https://raw.githubusercontent.com/esper256/pantry-wizard/v2.4.0/AGENT_INSTRUCTIONS.md
 
 Do the setup section in them. Use the pw tool for everything. Do not use the Google Drive or Google Sheets plugins, and never change the sheet with your own code.
 Run pw doctor. If it says the sheet is not set up, ask me for our timezone and currency and run pw init with them. If the sheet is already set up, another person's bot did that. Leave it as it is.
