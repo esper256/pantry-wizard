@@ -238,7 +238,7 @@ def test_stale_below_baseline_rows_are_requoted_before_unchecked_history():
 
 def test_partial_price_lookup_names_the_miss_and_retries_the_flag(tmp_path):
     class _Partial(_Source):
-        def lookup_prices(self, skus, warehouse):
+        def lookup_prices(self, skus, warehouse, known=()):
             del warehouse
             self.asked.append(list(skus))
             return PriceLookupResult(
@@ -287,7 +287,7 @@ def test_partial_price_lookup_names_the_miss_and_retries_the_flag(tmp_path):
 
 def test_below_baseline_reconcile_runs_once(tmp_path):
     class _All(_Source):
-        def lookup_prices(self, skus, warehouse):
+        def lookup_prices(self, skus, warehouse, known=()):
             del warehouse
             self.asked.append(list(skus))
             return PriceLookupResult(
@@ -340,7 +340,7 @@ def test_below_baseline_reconcile_runs_once(tmp_path):
 
 def test_a_failed_batch_does_not_advance_those_item_numbers(tmp_path):
     class _Partial(_Source):
-        def lookup_prices(self, skus, warehouse):
+        def lookup_prices(self, skus, warehouse, known=()):
             del warehouse
             self.asked.extend(skus)
             return PriceLookupResult(
@@ -429,7 +429,7 @@ class _Source:
         del skus, warehouse
         return {}
 
-    def lookup_prices(self, skus, warehouse):
+    def lookup_prices(self, skus, warehouse, known=()):
         del warehouse
         self.asked.extend(skus)
         quotes = []

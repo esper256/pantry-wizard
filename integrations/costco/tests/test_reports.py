@@ -117,7 +117,7 @@ def test_auth_failure_mid_history_does_not_write_a_partial_file(tmp_path):
             del skus, warehouse
             return {}
 
-        def lookup_prices(self, skus, warehouse):
+        def lookup_prices(self, skus, warehouse, known=()):
             from costco_sync.models import PriceLookupResult
 
             del skus, warehouse

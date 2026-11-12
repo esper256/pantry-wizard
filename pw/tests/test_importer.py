@@ -64,7 +64,7 @@ class FakeCostco:
     def lookup_product_names(self, skus, warehouse):
         return {"1025795": "Kirkland Signature Eggs, 5 dozen"}
 
-    def lookup_prices(self, skus, warehouse):
+    def lookup_prices(self, skus, warehouse, known=()):
         self.asked.append(list(skus))
         quotes = []
         for sku in skus:
