@@ -24,6 +24,7 @@ from costco_sync.models import (
     SearchHit,
     Snapshot,
 )
+from costco_sync.normalize import is_fee
 from costco_sync.money import (
     REDUCTION_THRESHOLD,
     median_money,
@@ -163,6 +164,7 @@ def snapshot_from_json(data: dict) -> Snapshot:
         for row in data.get("integrations") or []
         if row.get("integration_key")
     ]
+    priority = data.get("priority_item_numbers")
     return Snapshot(
         household_timezone=str(data.get("household_timezone") or "UTC"),
         preferred_costco_warehouse=str(data.get("preferred_costco_warehouse") or ""),
@@ -170,6 +172,8 @@ def snapshot_from_json(data: dict) -> Snapshot:
         retail_memory=retail,
         integrations=integrations,
         known_source_refs=refs,
+        priority_item_numbers=None if priority is None else [str(sku) for sku in priority if sku],
+        non_product_item_numbers={str(sku) for sku in data.get("non_product_item_numbers") or [] if sku},
     )
 
 
@@ -218,6 +222,7 @@ def build_mutations(
     newly_sampled: set[str] = set()
     alias_updates: dict[str, str] = {}
     events: list[dict] = []
+    new_receipts: list[dict] = []
 
     search_links = _search_links(snapshot, search, home)
     for item_id, sku in search_links.items():
@@ -231,9 +236,11 @@ def build_mutations(
     quotes = {quote.item_number: quote for quote in lookup.quotes}
 
     for receipt in receipts:
+        new_lines: list[dict] = []
         for line in receipt.lines:
             if line.source_ref in snapshot.known_source_refs:
                 continue
+            new_lines.append(_receipt_line(line, names, quotes))
             names_for_line = [names.get(line.item_number, ""), line.description, quotes.get(line.item_number, PriceQuote(line.item_number)).product_name]
             item = _match_item(items, line.item_number, names_for_line)
             if item is not None:
@@ -247,6 +254,15 @@ def build_mutations(
             row = _ensure_row(rows, key, line.item_number, _location(receipt), item.item_id if item else "")
             touched.add(key)
             _fold_purchase(row, line, receipt, samples, already_sampled, newly_sampled, names, quotes)
+        if new_lines:
+            new_receipts.append(
+                {
+                    "barcode": receipt.barcode,
+                    "warehouse_number": receipt.warehouse_number,
+                    "date": receipt.occurred_on,
+                    "lines": new_lines,
+                }
+            )
 
     _link_known_skus(items, rows, touched)
     if lookup.ok and home:
@@ -278,6 +294,7 @@ def build_mutations(
             for item_id, aliases in sorted(alias_updates.items())
         ],
         "events": sorted(events, key=lambda event: event["source_ref"]),
+        "receipts": sorted(new_receipts, key=lambda receipt: (receipt["date"], receipt["barcode"])),
         "retail_memory_upserts": [
             _row_dict(rows[key])
             for key in sorted(touched)
@@ -304,14 +321,30 @@ def _search_links(snapshot: Snapshot, search, home: str) -> dict[str, str]:
 def _interest_skus(snapshot: Snapshot, receipts: list[Receipt], search_links: dict[str, str]) -> set[str]:
     skus: set[str] = set()
     for row in snapshot.retail_memory:
-        if row.store.casefold() == "costco" and row.retailer_sku:
+        # A deposit row left by an older import has a SKU and no shelf price.
+        if row.store.casefold() == "costco" and row.retailer_sku and not is_fee(row.receipt_name):
             skus.add(row.retailer_sku)
     for receipt in receipts:
         for line in receipt.lines:
             if line.kind == "purchase":
                 skus.add(line.item_number)
     skus.update(search_links.values())
-    return skus
+    return skus - snapshot.non_product_item_numbers
+
+
+def _receipt_line(line: NormalizedLine, names: dict[str, str], quotes: dict[str, PriceQuote]) -> dict:
+    """One receipt line as data, for a sheet that stores lines and not events."""
+    quote = quotes.get(line.item_number)
+    return {
+        "source_ref": line.source_ref,
+        "item_number": line.item_number,
+        "description": line.description,
+        "name": names.get(line.item_number) or (quote.product_name if quote else ""),
+        "kind": line.kind,
+        "quantity": quantity_text(line.quantity),
+        "unit_price": money(line.unit_price_paid),
+        "instant_savings": line.had_instant_savings,
+    }
 
 
 def _needs_link(item: HouseholdItem) -> bool:
@@ -511,7 +544,7 @@ def _event(**kwargs) -> dict:
     event = {column: "" for column in EVENT_COLUMNS}
     event.update(kwargs)
     event["event_id"] = str(uuid.uuid5(_EVENT_NAMESPACE, kwargs["source_ref"]))
-    event["actor"] = "membership import"
+    event["actor"] = "costco-sync"
     event["written_by"] = "costco-sync"
     event["store"] = "Costco"
     return event

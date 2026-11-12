@@ -62,6 +62,10 @@ class Snapshot:
     retail_memory: list[RetailRow] = field(default_factory=list)
     integrations: list[IntegrationRow] = field(default_factory=list)
     known_source_refs: set[str] = field(default_factory=set)
+    # A trip refresh. When present, only these item numbers are priced, in this order.
+    priority_item_numbers: list[str] | None = None
+    # Item numbers the household marked as not a product. They are never priced.
+    non_product_item_numbers: set[str] = field(default_factory=set)
 
 
 @dataclass
