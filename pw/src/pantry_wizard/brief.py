@@ -138,8 +138,9 @@ def build(wb, store: str) -> dict:
     for s in listed["skip"]:
         handled.add(s["item"])
         until = f' until {s["until"][:10]}' if s["until"] else ""
+        who = f' ({s["by"]})' if s["by"] else ""
         sec["skip"].append({"key": f'skip:{s["item"] or s["text"]}',
-                            "text": f'{s["text"]}: asked not to buy{until} ({s["by"]}).'})
+                            "text": f'{s["text"]}: asked not to buy{until}{who}.'})
 
     for m in listed["buy"]:
         ident = m["item"] or m["text"].casefold()
@@ -169,7 +170,13 @@ def build(wb, store: str) -> dict:
         if st["usual_gap_days"] != "":
             rhythm = (f' Usually bought every {st["usual_gap_days"]} days;'
                       f' last bought {st["days_since"]} days ago.')
-        if st["stock"] in ("out", "low"):
+        if st["stock"] in ("out", "low") and item["rule"] == "on_sale":
+            if not deals_for(key):
+                sec["waiting_for_sale"].append({
+                    "key": f"wait:{key}",
+                    "text": f'{st["name"]}: {st["stock"]}, but bought only on sale, and it is not.'})
+                handled.add(key)
+        elif st["stock"] in ("out", "low"):
             sec["probably_buy"].append({
                 "key": f'stock:{key}:{st["stock"]}',
                 "text": f'{st["name"]}: {st["last_said"]} on {st["last_said_at"]},'
@@ -279,7 +286,8 @@ def trip_tier(wb, store: str) -> dict:
     """Which products are worth re-checking before or during a trip.
 
     Tier 0 is what the list and standing rules depend on. Tier 1 is the rest
-    of what this household actually rebuys, longest unchecked first. Products
+    of what this household actually rebuys, longest unchecked first and never
+    priced last. Products
     the store has repeatedly failed to price, and deposit lines, are never
     included. Neither is a price checked in the last couple of hours, so a
     second refresh on the same trip moves on to the next products.
@@ -309,7 +317,10 @@ def trip_tier(wb, store: str) -> dict:
         if checked is not None and checked > fresh_since:
             fresh += 1
             continue
-        tier.append((checked.timestamp() if checked else 0, p["sku"]))
+        # Oldest check first. A product the store has never priced goes to
+        # the back of tier 1: it is the least likely to have news.
+        never = float("inf") if tier is tier1 else 0
+        tier.append((checked.timestamp() if checked else never, p["sku"]))
     return {"store": store, "tier0": [sku for _, sku in sorted(tier0)],
             "tier1": [sku for _, sku in sorted(tier1)], "checked_recently": fresh}
 

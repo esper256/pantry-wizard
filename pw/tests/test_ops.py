@@ -77,6 +77,10 @@ class GuardTests(unittest.TestCase):
             with self.assertRaises(PwError):
                 say(be, [bad])
 
+    def test_keys_keep_the_letters_under_accents(self):
+        self.assertEqual([ops.slug(n) for n in ("Açaí bowls", "Jalapeño", "Trader Joe’s", "Crème fraîche")],
+                         ["acai-bowls", "jalapeno", "trader-joes", "creme-fraiche"])
+
     def test_a_failed_batch_writes_nothing(self):
         be = household()
         with self.assertRaises(PwError):

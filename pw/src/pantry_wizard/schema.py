@@ -129,7 +129,8 @@ TABS: dict[str, Tab] = {
 # spellings of one person out of the sheet.
 LIST_KINDS = ("buy", "skip", "remind")
 LIST_STATUS = ("open", "done", "cancelled", "expired")
-ONLY_IF = ("", "on_sale")
+# any_price: buy it this time whatever the item's standing rule says.
+ONLY_IF = ("", "on_sale", "any_price")
 ITEM_KINDS = ("", "once")  # once = a one-time need; never suggested again
 ITEM_RULES = ("", "on_sale", "when_in_stock", "never")
 PRODUCT_KINDS = ("", "consumable", "once", "seasonal", "not_product")
@@ -151,5 +152,4 @@ CONFIG_DEFAULTS = (
     ("schema_version", SCHEMA_VERSION, "Sheet layout version. pw refuses to write on a mismatch."),
     ("timezone", "", "IANA timezone, e.g. America/Los_Angeles"),
     ("currency", "", "Currency code, e.g. USD"),
-    ("instructions_url", "", "Pinned AGENT_INSTRUCTIONS.md for this household's agents"),
 )

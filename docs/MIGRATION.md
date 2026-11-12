@@ -26,6 +26,7 @@ The migration reads the old workbook and writes a new one. The old sheet is neve
    - Tell everyone not to log anything.
    - Run step 2 again with `--reset` added, so nothing said since the rehearsal is lost. `pw migrate` refuses to write into a workbook that already holds household data unless `--reset` is given.
    - Install `pw` in each agent's environment and give each agent `AGENT_INSTRUCTIONS.md` at the release tag.
+   - Set `PW_AGENT` on the agent that runs the importer to the `owner` in the migrated `Sync` row, exactly as spelled. Any other name is refused the lease until it expires.
    - Reinstall `integrations/costco` on the agent that runs it, and run the daily routine in `integrations/costco/SETUP.md` step 8 once. The importer's `~/.costco-sync/state.db` carries over as it is.
    - Rename the old sheet "Pantry Wizard v1 (read only)" and remove the agents' edit access to it.
 6. **Afterwards.** Bank questions for unlinked products the household buys often, and answer them in cards. Linking is what lets "do we need eggs?" be answered from purchase rhythm.
@@ -40,13 +41,13 @@ The migration reads the old workbook and writes a new one. The old sheet is neve
 | `RetailMemory` | `Products` (identity, link) and `Offers` (price, sale, stock) |
 | `Events` purchase and refund rows from a receipt | `Receipts` and `Lines`, grouped by receipt; the importer's `source_ref` is kept in `Lines.ref` |
 | `Events` purchases someone mentioned in chat | `Log`, as `bought` |
-| every other `Events` row | `Log`, keeping id, speaker, words and reference |
+| every other `Events` row | `Log`, keeping id, speaker and reference; `raw` holds the person's words, then ` \| `, then the old interpretation |
 | `Integrations` | `Sync` |
 | actor labels | `Sources`, one row per person |
 
 ## Things to check by hand on real data
 
-- **Photo receipts for trips that never reach the importer** stay `recorded` and count. If the official receipt for the same trip is imported later, the photo receipt is superseded automatically. A photo that was logged under the importer's own key format keeps its SKUs, and no longer stops the official receipt from being imported.
+- **Photo receipts for trips that never reach the importer** stay `recorded` and count. If the official receipt for the same trip is imported later, the photo receipt is superseded automatically. A photo line keeps its SKU when its old `source_ref` is `photo:<store>:<receipt id>:<sku>` or the importer's own `costco:wh:<barcode>:<sku>`, and the old sheet had a `RetailMemory` row for that SKU. It no longer stops the official receipt from being imported.
 - **Deposit lines.** `RetailMemory` rows whose receipt name starts with `CA REDEMP VAL` arrive as `not_product` with no offer, and are never priced again.
 - **Other standing rules.** Only "only if on sale" and "whenever in stock" are recognised in policy text. Set anything else, such as `only_at` or `max_price`, with `set_item` after the migration; the original text is in `keep`.
 - **`checked_at`.** The old sheet only stamped a row when its value changed, so migrated `checked_at` values can be older than the truth. The first sync fixes this.

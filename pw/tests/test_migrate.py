@@ -1,6 +1,6 @@
 import unittest
 
-from helpers import book, rows, say
+from helpers import NOW, book, rows, say
 from pantry_wizard import costco_bridge, migrate
 from pantry_wizard.backend import MemoryBackend
 
@@ -77,10 +77,16 @@ def v1_workbook():
                        "actor": "partner (whiteboard)", "written_by": "other-bot", "event_type": "purchased",
                        "store": "Costco", "price_paid": "11.49", "source_type": "receipt_photo",
                        "source_ref": "costco:wh:B2:100#2"},
+                      # A photo keyed by receipt and SKU, the way the member-card receipt was logged.
+                      {"event_id": "e10", "recorded_at": "2026-10-27T18:00:00-07:00", "occurred_at": "2026-10-27",
+                       "actor": "Sam", "written_by": "other-bot", "event_type": "purchased",
+                       "store": "Costco", "price_paid": "14.99", "source_type": "receipt_photo",
+                       "source_ref": "photo:costco:B2:200#2"},
                       # Said in chat, with no receipt behind it.
                       {"event_id": "e9", "recorded_at": "2026-11-02T12:00:00-08:00", "occurred_at": "2026-11-02",
                        "actor": "user", "written_by": "bot", "item_id": "u3", "event_type": "purchased",
-                       "raw_message": "I picked up bananas", "source_type": "human_chat"}),
+                       "store": "Corner Market", "price_paid": "1.29", "raw_message": "I picked up bananas",
+                       "interpretation": "Bought bananas at Corner Market", "source_type": "human_chat"}),
     }
 
 
@@ -93,7 +99,7 @@ class MigrateTests(unittest.TestCase):
     def test_every_check_passes(self):
         self.assertEqual(self.report["checks"], {k: True for k in self.report["checks"]})
         self.assertEqual(self.report["new"]["people"], ["sam", "alex"])  # one spelling each
-        self.assertEqual(sorted(self.report["new"]["stores"]), ["costco", "trader-joes"])
+        self.assertEqual(sorted(self.report["new"]["stores"]), ["corner-market", "costco", "trader-joes"])
         names = {r["source"]: r["name"] for r in rows(self.be, "Sources")}
         self.assertEqual((names["person:sam"], names["store:trader-joes"]), ("Sam", "Trader Joe's"))
 
@@ -125,17 +131,24 @@ class MigrateTests(unittest.TestCase):
         receipts = {r["receipt"]: r for r in rows(self.be, "Receipts")}
         self.assertEqual(set(receipts), {"costco:B1", "photo:costco:B2", "photo:trader-joes:2026-10-01"})
         self.assertEqual(receipts["costco:B1"]["lines"], "3")
-        self.assertEqual(receipts["photo:costco:B2"]["lines"], "2")   # both photo spellings, one receipt
+        self.assertEqual(receipts["photo:costco:B2"]["lines"], "3")   # every photo spelling, one receipt
         lines = {l["ref"]: l for l in rows(self.be, "Lines")}
         self.assertEqual(lines["costco:wh:B1:999"]["kind"], "deposit")
         self.assertEqual((lines["costco:wh:B1:300:refund"]["kind"], lines["costco:wh:B1:300:refund"]["receipt"]),
                          ("refund", "costco:B1"))
-        self.assertEqual(lines["photo:costco:B2:1"]["item"], "eggs")
+        self.assertEqual((lines["photo:costco:B2:1"]["item"], lines["photo:costco:B2:1"]["product"]),
+                         ("eggs", ""))                                      # ":1" is a line number
+        self.assertEqual(lines["photo:costco:B2:200#2"]["product"], "costco:200")
+        from pantry_wizard import stats
+        paid = stats.product_stats(book(self.be), NOW.date())["costco:200"]
+        self.assertEqual((paid["last_paid"], paid["last_paid_at"]), ("14.99", "2026-10-27"))
         self.assertEqual(lines["costco:wh:B2:100#2"]["product"], "costco:100")   # the SKU survives
         self.assertEqual(lines["tj receipt photo 2026-10-01"]["item"], "cheese")
         log = rows(self.be, "Log")
         self.assertEqual([(l["kind"], l["item"], l["by"]) for l in log],
                          [("said", "eggs", "alex"), ("out", "honey-cereal", "alex"), ("bought", "bananas", "alex")])
+        self.assertEqual((log[-1]["value"], log[-1]["raw"]),
+                         ("Corner Market 1.29", "I picked up bananas | Bought bananas at Corner Market"))
 
     def test_a_photo_under_the_importers_key_does_not_block_the_official_receipt(self):
         setup = costco_bridge.snapshot(book(self.be), "costco")
@@ -146,7 +159,9 @@ class MigrateTests(unittest.TestCase):
         say(self.be, [{"op": "done", "item": "eggs"}], by="sam")
         from pantry_wizard import brief
         b = brief.build(book(self.be), "costco")
-        self.assertIn("probably_buy", b["sections"])  # cereal: said out, nothing bought since
+        # Cereal: said out, nothing bought since, and only ever bought on sale.
+        self.assertIn("Honey cereal: out", b["sections"]["waiting_for_sale"][0]["text"])
+        self.assertEqual(b["sections"]["skip"][0]["text"], "Bananas: asked not to buy until 2026-11-18.")
 
 
 if __name__ == "__main__":

@@ -15,7 +15,10 @@ from typing import Iterable
 from .errors import PwError
 
 Rows = list[list[str]]
-Cell = tuple[str, int, int, str]  # tab, 1-based row number, 0-based column, value
+# tab, 1-based row number when read, 0-based column, value, and the row's key.
+# The key is in column A. A backend finds the row by it again before writing,
+# so a sheet someone sorted in the meantime is not written to the wrong row.
+Cell = tuple[str, int, int, str, str]
 
 
 class MemoryBackend:
@@ -31,13 +34,14 @@ class MemoryBackend:
         return {t: [list(r) for r in self.tabs.get(t, [])] for t in tabs}
 
     def commit(self, appends: dict[str, Rows], cells: list[Cell], replaces: dict[str, Rows]) -> None:
+        cells = _relocate(cells, {t: [r[:1] for r in self.tabs[t]] for t in {c[0] for c in cells}})
         for tab, rows in appends.items():
             if rows:
                 self.write_calls += 1
                 self.tabs.setdefault(tab, []).extend([_text(r) for r in rows])
         if cells:
             self.write_calls += 1
-            for tab, row, col, value in cells:
+            for tab, row, col, value, _key in cells:
                 target = self.tabs[tab][row - 1]
                 target.extend([""] * (col + 1 - len(target)))
                 target[col] = str(value)
@@ -126,21 +130,51 @@ class SheetsBackend:
             return {t: got.get(t, []) for t in tabs}
         return {t: vr.get("values", []) for t, vr in zip(tabs, res.get("valueRanges", []))}
 
+    def _keys(self, tabs: Iterable[str]) -> dict[str, Rows]:
+        """Column A of each tab, as it is right now."""
+        tabs = sorted(tabs)
+        if not tabs:
+            return {}
+        self.read_calls += 1
+        res = self._run(self.api.values().batchGet(
+            spreadsheetId=self.id, ranges=[f"{_q(t)}!A:A" for t in tabs]))
+        return {t: vr.get("values", []) for t, vr in zip(tabs, res.get("valueRanges", []))}
+
+    def _append(self, tab: str, rows: Rows) -> None:
+        """Append, without doubling the rows when the first try did land.
+
+        A 5xx can arrive after Google has written. Before trying again, look
+        for the first new key.
+        """
+        request = self.api.values().append(
+            spreadsheetId=self.id, range=f"{_q(tab)}!A1", valueInputOption="RAW",
+            insertDataOption="INSERT_ROWS", body={"values": rows})
+        for attempt in range(5):
+            try:
+                request.execute()
+                return
+            except Exception as e:
+                status = getattr(getattr(e, "resp", None), "status", None)
+                if status not in (429, 500, 502, 503) or attempt == 4:
+                    raise
+                time.sleep(2 ** attempt)
+                if any(r[:1] == rows[0][:1] for r in self._keys([tab])[tab]):
+                    return
+
     def commit(self, appends: dict[str, Rows], cells: list[Cell], replaces: dict[str, Rows]) -> None:
         values = self.api.values()
+        # Before anything is written: are the rows to change still where they were read?
+        cells = _relocate(cells, self._keys({c[0] for c in cells}))
         for tab, rows in appends.items():
             if not rows:
                 continue
             self.write_calls += 1
-            self._run(values.append(
-                spreadsheetId=self.id, range=f"{_q(tab)}!A1", valueInputOption="RAW",
-                insertDataOption="INSERT_ROWS", body={"values": [_text(r) for r in rows]},
-            ))
+            self._append(tab, [_text(r) for r in rows])
         if cells:
             self.write_calls += 1
             data = [
                 {"range": f"{_q(tab)}!{_col(col)}{row}", "values": [[str(value)]]}
-                for tab, row, col, value in cells
+                for tab, row, col, value, _key in cells
             ]
             self._run(values.batchUpdate(
                 spreadsheetId=self.id, body={"valueInputOption": "RAW", "data": data}
@@ -161,6 +195,18 @@ class SheetsBackend:
         requests = [{"addSheet": {"properties": {"title": n}}} for n in names if n not in have]
         if requests:
             self._run(self.api.batchUpdate(spreadsheetId=self.id, body={"requests": requests}))
+
+
+def _relocate(cells: list[Cell], keys: dict[str, Rows]) -> list[Cell]:
+    """Point each cell at the row that holds its key now."""
+    where = {tab: {(r[0] if r else ""): n for n, r in enumerate(rows, start=1)} for tab, rows in keys.items()}
+    out = []
+    for tab, row, col, value, key in cells:
+        now = where[tab].get(key)
+        if now is None:
+            raise PwError(f"{tab} no longer has a row for {key}. Nothing was written. Run the command again.")
+        out.append((tab, now, col, value, key))
+    return out
 
 
 def _q(tab: str) -> str:

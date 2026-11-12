@@ -54,7 +54,7 @@ class Workbook:
         self._now = now
         self.tables: dict[str, Table] = {}
         self._appends: dict[str, list[dict]] = {}
-        self._cells: list[tuple[str, int, int, str]] = []
+        self._cells: list[tuple[str, int, int, str, str]] = []
         self._replaced: set[str] = set()
 
     # -- reading ---------------------------------------------------------
@@ -127,7 +127,7 @@ class Workbook:
                 continue
             row[col] = value
             if row["_row"] is not None and name not in self._replaced:
-                self._cells.append((name, row["_row"], table.header.index(col), value))
+                self._cells.append((name, row["_row"], table.header.index(col), value, key))
         return row
 
     def replace(self, name: str, rows: list[dict]) -> None:

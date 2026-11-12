@@ -175,6 +175,19 @@ class StockWordTests(unittest.TestCase):
         early = NOW.replace(month=10, day=20)
         self.assertEqual(stock(be, "eggs", early)["stock"], "ok")
 
+    def test_an_old_out_or_low_becomes_a_reason_to_look_not_to_buy(self):
+        be = household()
+        say(be, [{"op": "saw", "item": "ketchup", "kind": "low"}], raw="ketchup is low",
+            now=NOW - timedelta(days=61))
+        st = stock(be, "ketchup")
+        self.assertEqual(st["stock"], "check")
+        self.assertIn("ketchup is low", st["last_said"])       # the words are still shown
+        self.assertEqual(stock(be, "ketchup", NOW - timedelta(days=40))["stock"], "low")
+        # With a slow rhythm it is believed for two of the usual gaps.
+        egg_history(be, ["2026-03-01", "2026-05-01", "2026-07-01"])
+        say(be, [{"op": "saw", "item": "eggs", "kind": "out"}], now=NOW - timedelta(days=100))
+        self.assertEqual(stock(be, "eggs")["stock"], "out")
+
     def test_plenty_goes_stale(self):
         be = household()
         say(be, [{"op": "saw", "item": "paper-towels", "kind": "plenty"}], raw="we have tons")

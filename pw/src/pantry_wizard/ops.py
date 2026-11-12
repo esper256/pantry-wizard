@@ -23,6 +23,7 @@ timestamps, validation, the audit trail and idempotency.
 from __future__ import annotations
 
 import re
+import unicodedata
 
 from . import schema as S
 from .store import PwError, Workbook
@@ -31,7 +32,9 @@ ITEM_FIELDS = ("name", "aliases", "kind", "stores", "only_at", "rule", "max_pric
 
 
 def slug(text: str) -> str:
-    text = re.sub(r"['\u2019]", "", (text or "").lower())  # Trader Joe's -> trader-joes
+    text = unicodedata.normalize("NFKD", text or "")           # Açaí -> acai
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    text = re.sub(r"['\u2019]", "", text.lower())               # Trader Joe's -> trader-joes
     return re.sub(r"[^a-z0-9]+", "-", text).strip("-")
 
 
@@ -359,6 +362,7 @@ def open_list(wb: Workbook, store: str = "") -> dict:
             m = merged.setdefault(key, {
                 "item": r["item"], "text": r["text"], "qty": [], "by": [], "since": r["at"][:10],
                 "store": stores, "only_at": only_at, "only_if": "", "max_price": "", "ids": [],
+                "conditions": set(),
             })
             if r["qty"] and r["qty"] not in m["qty"]:
                 m["qty"].append(r["qty"])
@@ -366,9 +370,21 @@ def open_list(wb: Workbook, store: str = "") -> dict:
                 m["by"].append(r["by"])
             m["since"] = min(m["since"], r["at"][:10])
             m["ids"].append(r["id"])
-            # One unconditional request outweighs a conditional one.
-            m["only_if"] = r["only_if"] if len(m["ids"]) == 1 else (m["only_if"] and r["only_if"])
+            m["conditions"].add(r["only_if"])
             m["max_price"] = m["max_price"] or r["max_price"]
+    for m in merged.values():
+        said = m.pop("conditions")
+        rule = items.get(m["item"]) or {} if m["item"] else {}
+        if "any_price" in said:
+            m["only_if"] = ""
+        elif rule.get("rule") == "on_sale":
+            # "Only buy that cereal on sale" is said once, about the item. A
+            # plain "add cereal" later does not take it back.
+            m["only_if"] = "on_sale"
+            m["max_price"] = m["max_price"] or rule.get("max_price", "")
+        else:
+            # One unconditional request outweighs a conditional one.
+            m["only_if"] = "" if "" in said else "on_sale"
     return {"buy": list(merged.values()), "skip": skips, "reminders": reminders}
 
 

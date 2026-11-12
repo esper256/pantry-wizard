@@ -4,10 +4,11 @@ Nothing here is stored as truth. `v_Items` is a copy for people to look at.
 
 The stock word is deliberately crude and deliberately honest:
 
-  out, low   someone said so and nothing has been bought since
+  out, low   someone said so lately and nothing has been bought since
   plenty     someone said so recently and nothing suggests otherwise
   ok         bought recently relative to the usual gap
-  check      the usual gap has passed; purchases elsewhere may be unrecorded
+  check      the usual gap has passed, or an old "out" or "low" was never
+             followed by a purchase; purchases elsewhere may be unrecorded
   unknown    no usable evidence
 
 It never claims a count. The model reading it still sees what was said, when,
@@ -24,7 +25,7 @@ from .schema import OBSERVATIONS
 MIN_DATES_FOR_RHYTHM = 3
 RECENT_GAPS = 12
 OK_FRACTION = 0.75        # of the usual gap
-PLENTY_MIN_DAYS = 30      # a "plenty" stays believable at least this long
+SAID_MIN_DAYS = 30        # what someone said stays believable at least this long
 NO_RHYTHM_OK_DAYS = 14
 
 
@@ -150,15 +151,16 @@ def stock_word(obs: dict | None, last_bought: date | None, gap: int | None, toda
     if obs is not None:
         said_on = _d(obs["at"])
         bought_since = bool(last_bought and said_on and last_bought >= said_on)
-        if not bought_since:
-            if obs["kind"] == "out":
-                return "out"
-            if obs["kind"] in ("low", "last_one"):
-                return "low"
-            if said_on is not None:  # plenty / have: believable for a while, then stale
-                keep_days = max(PLENTY_MIN_DAYS, 2 * gap) if gap else PLENTY_MIN_DAYS
-                if (today - said_on).days <= keep_days:
-                    return "plenty" if obs["kind"] == "plenty" else "ok"
+        if not bought_since and said_on is not None:
+            # What someone said is believed for a while, then goes stale.
+            # People do not report everything, least of all a trip to a store
+            # with no receipts here.
+            keep_days = max(SAID_MIN_DAYS, 2 * gap) if gap else SAID_MIN_DAYS
+            fresh = (today - said_on).days <= keep_days
+            if obs["kind"] in ("out", "low", "last_one"):
+                return ("out" if obs["kind"] == "out" else "low") if fresh else "check"
+            if fresh:
+                return "plenty" if obs["kind"] == "plenty" else "ok"
     if last_bought is None:
         return "unknown"
     days = (today - last_bought).days

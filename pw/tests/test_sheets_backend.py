@@ -16,7 +16,7 @@ from pantry_wizard.backend import SheetsBackend
 from pantry_wizard.schema import TABS
 from pantry_wizard.store import PwError, Workbook
 
-RANGE = re.compile(r"^'(?P<tab>[^']+)'(!(?P<col>[A-Z]+)(?P<row>\d+)(:(?P<end>[A-Z]+))?)?$")
+RANGE = re.compile(r"^'(?P<tab>[^']+)'(!(?P<col>[A-Z]+)(?P<row>\d+)?(:(?P<end>[A-Z]+))?)?$")
 
 
 def _index(letters: str) -> int:
@@ -40,6 +40,7 @@ class FakeSheets:
     def __init__(self):
         self.grids: dict[str, list[list[str]]] = {"Sheet1": []}
         self.calls: list[str] = []
+        self.fail_after_append = 0   # answer this many appends with a 503 after writing them
 
     def values(self):
         return self
@@ -93,7 +94,12 @@ class FakeSheets:
     def batchGet(self, spreadsheetId, ranges):
         def run():
             self.calls.append("batchGet")
-            return {"valueRanges": [{"range": r, "values": self._rows(self._parse(r)[0])} for r in ranges]}
+            out = []
+            for r in ranges:
+                tab, _col, _row, end = self._parse(r)
+                rows = self._rows(tab)
+                out.append({"range": r, "values": [line[:1] for line in rows] if end == "A" else rows})
+            return {"valueRanges": out}
         return _Call(run)
 
     def append(self, spreadsheetId, range, valueInputOption, insertDataOption, body):
@@ -102,6 +108,11 @@ class FakeSheets:
             assert (valueInputOption, insertDataOption) == ("RAW", "INSERT_ROWS")
             tab, col, _, _ = self._parse(range)
             self._put(tab, col, len(self._rows(tab)) + 1, body["values"])
+            if self.fail_after_append:
+                self.fail_after_append -= 1
+                error = RuntimeError("backend error")
+                error.resp = type("Resp", (), {"status": 503})()
+                raise error
             return {}
         return _Call(run)
 
@@ -149,7 +160,8 @@ class SheetsBackendTests(unittest.TestCase):
         self.api.calls.clear()
         ops.apply(self.book(), [{"op": "done", "item": "eggs"},
                                 {"op": "saw", "item": "eggs", "kind": "plenty"}], by="alex")
-        self.assertEqual(self.api.calls, ["batchGet", "append", "batchUpdate"])
+        # Read, check the row to change is still where it was, then write.
+        self.assertEqual(self.api.calls, ["batchGet", "batchGet", "append", "batchUpdate"])
         row = dict(zip(self.api.grids["List"][0], self.api.grids["List"][1]))
         self.assertEqual((row["status"], row["closed_by"], row["qty"]), ("done", "alex", "2"))
         self.assertEqual(ops.open_list(self.book())["buy"], [])
@@ -161,6 +173,33 @@ class SheetsBackendTests(unittest.TestCase):
         items = [dict(zip(self.api.grids["Items"][0], r)) for r in self.api.grids["Items"][1:]]
         self.assertEqual([(i["item"], i.get("rule", "")) for i in items],
                          [("eggs", ""), ("milk", "on_sale"), ("naan", "")])
+
+    def test_a_sheet_sorted_between_read_and_write_is_still_written_by_key(self):
+        ops.apply(self.book(), [{"op": "new_item", "name": n, "new_source": True}
+                                for n in ("Eggs", "Milk", "Naan")], by="alex")
+        wb = self.book().load("Config", "Sources", "List", "Items", "Log", "Questions", "Products")
+        grid = self.api.grids["Items"]
+        grid[1:] = sorted(grid[1:], reverse=True)          # someone sorts the tab in the browser
+        ops.apply(wb, [{"op": "set_item", "item": "milk", "rule": "on_sale"}], by="alex")
+        items = {r[0]: dict(zip(grid[0], r)) for r in grid[1:]}
+        self.assertEqual([k for k, i in items.items() if i.get("rule")], ["milk"])
+
+    def test_a_row_deleted_between_read_and_write_stops_the_whole_commit(self):
+        ops.apply(self.book(), [{"op": "new_item", "name": "Milk", "new_source": True}], by="alex")
+        wb = self.book().load("Config", "Sources", "List", "Items", "Log", "Questions", "Products")
+        del self.api.grids["Items"][1]
+        logged = len(self.api.grids["Log"])
+        with self.assertRaises(PwError):
+            ops.apply(wb, [{"op": "set_item", "item": "milk", "rule": "on_sale"}], by="alex")
+        self.assertEqual(len(self.api.grids["Log"]), logged)   # the audit row was not written either
+
+    def test_an_append_that_landed_before_a_503_is_not_sent_twice(self):
+        import pantry_wizard.backend as backend
+        self.addCleanup(setattr, backend.time, "sleep", backend.time.sleep)
+        backend.time.sleep = lambda seconds: None
+        self.api.fail_after_append = 1
+        ops.apply(self.book(), [{"op": "new_item", "name": "Milk", "new_source": True}], by="alex")
+        self.assertEqual([r[0] for r in self.api.grids["Items"]], ["item", "milk"])
 
     def test_replacing_a_tab_with_fewer_rows_leaves_nothing_behind(self):
         wb = self.book().load("Config", "Offers")

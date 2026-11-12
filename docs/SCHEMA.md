@@ -15,7 +15,7 @@ Reference for people changing `pw`. Agents do not need this page: they use `pw` 
 
 | Tab | One row per | Key | Written by | How |
 | --- | --- | --- | --- | --- |
-| `Config` | setting | `key` | setup | `schema_version`, `timezone`, `currency`, `instructions_url` |
+| `Config` | setting | `key` | setup | `schema_version`, `timezone`, `currency` |
 | `Sources` | person or store the household uses | `source` (`person:alex`, `store:costco`) | agents, first time seen | append |
 | `List` | request | `id` | agents | append; set `status`, `closed_at`, `closed_by`, `closed_ref` |
 | `Items` | thing the household tracks | `item` (readable, e.g. `eggs`) | agents | append; rare set |
@@ -31,9 +31,9 @@ Reference for people changing `pw`. Agents do not need this page: they use `pw` 
 
 ## Columns worth explaining
 
-**`List`.** `kind` is `buy`, `skip` or `remind`. `item` is blank for a one-off; `text` is what the list should say. `qty` is free text in the requester's words. `only_if` is blank or `on_sale`. `until` expires a row. Duplicate open rows for one item are expected: they are merged on read and closed together.
+**`List`.** `kind` is `buy`, `skip` or `remind`. `item` is blank for a one-off; `text` is what the list should say. `qty` is free text in the requester's words. `only_if` is blank, `on_sale`, or `any_price` (buy it this once whatever the item's `rule` says). `until` expires a row. Duplicate open rows for one item are expected: they are merged on read and closed together.
 
-**`Items`.** `stores` are preferred stores; `only_at` restricts the item to those stores. `rule` is a standing instruction: `on_sale` (surface when there is a confirmed sale), `when_in_stock` (mention when the store has it), `never`. `kind` `once` marks a one-time need that should not be suggested again. `keep` is stock policy in words. There are no inventory columns.
+**`Items`.** `stores` are preferred stores; `only_at` restricts the item to those stores. `rule` is a standing instruction: `on_sale` (surface when there is a confirmed sale; a request for the item waits for one too), `when_in_stock` (mention when the store has it), `never`. `kind` `once` marks a one-time need that should not be suggested again. `keep` is stock policy in words. There are no inventory columns.
 
 **`Log`.** `kind` is `out`, `low`, `last_one`, `plenty`, `have`, `used`, `bought`, `said`, `set` or `fix`. The newest observation per item is the stock evidence. `set` rows are written by `pw` whenever an item or product is changed, with who asked and their words.
 
@@ -53,6 +53,6 @@ Reference for people changing `pw`. Agents do not need this page: they use `pw` 
 | Closed by a receipt | open `buy` rows whose item is on the receipt and `remind` rows for that store, if asked on or before the receipt's date |
 | Last bought, usual gap, buys in 12 months | `Lines` under `recorded` receipts, plus `Log` `bought` |
 | Last paid | newest purchase line for the product |
-| Stock word | newest observation, purchases since, usual gap (`stats.py`) |
+| Stock word | newest observation, purchases since, usual gap (`stats.py`). What was said is believed for 30 days or two usual gaps, whichever is longer; after that "plenty" is dropped and "out" or "low" becomes `check` |
 | Confirmed deal | `Offers`: promotion, warehouse scope, on the shelf, not ended (`brief.py`) |
 | Worth showing | `Products.kind`, the item link, purchase history (`brief.relevant`) |

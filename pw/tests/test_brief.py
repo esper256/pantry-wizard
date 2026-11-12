@@ -200,6 +200,40 @@ class BriefTests(unittest.TestCase):
         self.assertIn("SPINDRIFT", delta["no_longer_true"][0])
 
 
+class StandingRuleOnTheListTests(unittest.TestCase):
+    """"Only buy that cereal on sale" is said about the item, and holds for a later "add cereal"."""
+
+    def setUp(self):
+        self.be = household()
+        buy(self.be, "400", "HONEY CEREAL", ["2026-06-01", "2026-08-01"], item="cereal")
+        say(self.be, [{"op": "add", "item": "cereal"}])
+
+    def test_a_request_for_it_waits_for_a_sale(self):
+        b = get(self.be)
+        self.assertIn("only if on sale", texts(b, "waiting_for_sale")[0])
+        self.assertEqual(texts(b, "buy"), [])
+        offer(self.be, "costco:400", **SALE)
+        b = get(self.be)
+        self.assertIn("On sale: $7.99", texts(b, "buy")[0])
+        self.assertEqual(texts(b, "waiting_for_sale"), [])
+
+    def test_a_person_can_still_ask_for_it_at_any_price(self):
+        say(self.be, [{"op": "add", "item": "cereal", "only_if": "any_price"}], by="sam")
+        b = get(self.be)
+        self.assertIn("Cereal, asked by alex, sam", texts(b, "buy")[0])
+        self.assertEqual(texts(b, "waiting_for_sale"), [])
+
+    def test_running_low_on_it_is_not_a_reason_to_buy_at_full_price(self):
+        say(self.be, [{"op": "cancel", "item": "cereal"}, {"op": "saw", "item": "cereal", "kind": "low"}])
+        b = get(self.be)
+        self.assertEqual(texts(b, "probably_buy"), [])
+        self.assertIn("bought only on sale", texts(b, "waiting_for_sale")[0])
+        offer(self.be, "costco:400", **SALE)
+        b = get(self.be)
+        self.assertEqual(texts(b, "waiting_for_sale"), [])
+        self.assertIn("You buy this when it is on sale", texts(b, "deals")[0])
+
+
 class TierTests(unittest.TestCase):
     def test_trip_refresh_covers_what_matters_and_nothing_else(self):
         be = household()
@@ -223,7 +257,7 @@ class TierTests(unittest.TestCase):
         offer(be, "costco:210", checked_at="2026-11-04T08:20:00-08:00")   # last week
         offer(be, "costco:230", checked_at="2026-11-11T10:30:00-08:00")   # a quarter of an hour ago
         tier = brief.trip_tier(book(be), "costco")
-        self.assertEqual(tier["tier1"], ["220", "210", "200"])            # never checked, then oldest
+        self.assertEqual(tier["tier1"], ["210", "200", "220"])            # oldest check first, never priced last
         self.assertEqual(tier["checked_recently"], 1)
 
 

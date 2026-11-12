@@ -34,6 +34,22 @@ class CliTests(unittest.TestCase):
         self.assertIn("already holds household data", wipe.stderr)
         self.assertEqual(len(json.loads(self.pw("list").stdout)["buy"]), 2)
 
+    def test_init_and_migrate_never_touch_a_schema_03_sheet(self):
+        self.tmp = tempfile.mkdtemp()
+        self.path = os.path.join(self.tmp, "old.json")
+        old = {"Config": [["key", "value"], ["schema_version", "0.3"]],
+               "Items": [["item_id", "canonical_name"], ["u1", "Eggs"]],
+               "Events": [["event_id"], ["e1"]], "RetailMemory": [["retail_key"]]}
+        for case in (old, {"Config": old["Config"]}, {"Events": old["Events"]}):
+            with open(self.path, "w") as f:
+                json.dump(case, f)
+            for cmd in (["init", "--reset"], ["init"], ["migrate", "--reset", "--old", self.path]):
+                got = self.pw(*cmd)
+                self.assertEqual(got.returncode, 1, cmd)
+                self.assertIn("schema 0.3 workbook", got.stderr)
+            with open(self.path) as f:
+                self.assertEqual(json.load(f), case)
+
     def test_the_importer_commands_exchange_files(self):
         self.tmp = tempfile.mkdtemp()
         self.path = os.path.join(self.tmp, "book.json")

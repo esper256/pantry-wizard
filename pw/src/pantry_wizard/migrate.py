@@ -29,8 +29,12 @@ OBSERVATION_TYPES = {
 }
 ON_SALE_RULE = re.compile(r"only\s+(if|when)\s+on\s+sale", re.I)
 IN_STOCK_RULE = re.compile(r"when(ever)?\s+(it\s+is\s+|it's\s+)?in\s+stock", re.I)
-# costco-sync's receipt-line key: costco:wh:<barcode>:<item number>[:refund][#n]
-IMPORT_REF = re.compile(r"^(?P<store>[a-z]+):wh:(?P<barcode>[^:#]+):(?P<sku>[^:#]+)(:refund)?(#\d+)?$")
+# Receipt-line keys that name the receipt and the SKU:
+#   costco:wh:<barcode>:<item number>[:refund][#n]   costco-sync, and photos logged its way
+#   photo:<store>:<receipt id>:<item number>[#n]     a photo
+# A photo key whose last part is a short line number has no SKU in it.
+IMPORT_REF = re.compile(r"^[a-z]+:wh:(?P<barcode>[^:#]+):(?P<sku>[^:#]+)(:refund)?(#\d+)?$")
+PHOTO_REF = re.compile(r"^photo:[^:]+:(?P<barcode>[^:#]+):(?P<sku>[^:#]+)(#\d+)?$")
 
 
 def init(backend, timezone: str = "", currency: str = "") -> None:
@@ -162,17 +166,14 @@ def migrate(old: dict[str, list[list[str]]], backend, once: list[str] | None = N
         source_type = e.get("source_type", "")
         date = (e.get("occurred_at") or "")[:10]
         store = source("store", e.get("store", ""))
-        on_receipt = IMPORT_REF.match(ref) or "receipt" in source_type or ref.startswith("photo:")
+        m = IMPORT_REF.match(ref) or PHOTO_REF.match(ref)
+        on_receipt = m or "receipt" in source_type
         if etype in ("purchased", "refunded") and on_receipt and date and store:
-            m = IMPORT_REF.match(ref)
             src = "import" if source_type == "receipt_import" else "photo"
             sku = m.group("sku") if m else ""
-            if m:
-                tail = m.group("barcode")
-            elif ref.startswith("photo:") and len(ref.split(":")) >= 4:
-                tail = ref.split(":")[2]
-            else:
-                tail = date  # one receipt per store and day
+            if sku and f"{store}:{sku}" not in old_products:
+                sku = ""  # a line number, or a product the old sheet never knew
+            tail = m.group("barcode") if m else date  # else one receipt per store and day
             key = f"{store}:{tail}" if src == "import" else f"{src}:{store}:{tail}"
             if wb.t("Receipts").get(key) is None:
                 wb.append("Receipts", {
@@ -204,14 +205,17 @@ def migrate(old: dict[str, list[list[str]]], backend, once: list[str] | None = N
             # Someone said they bought it. That counts toward buying rhythm
             # when the item is known, and is kept as said otherwise.
             report["purchases_without_a_receipt"] += 1
-            kind, value = ("bought" if item else "said"), e.get("store", "")
+            kind = "bought" if item else "said"
+            value = " ".join(filter(None, [e.get("store", ""), e.get("price_paid", "")]))
         if e.get("quantity"):
-            value = f'{e["quantity"]} {e.get("unit", "")}'.strip()
+            value = f'{e["quantity"]} {e.get("unit", "")} {value if etype == "purchased" else ""}'.strip()
+        # The person's words, then what the agent took them to mean.
+        said, meant = e.get("raw_message", ""), e.get("interpretation", "")
         wb.append("Log", {
             "id": e["event_id"], "at": e.get("occurred_at") or e.get("recorded_at", ""),
             "by": by, "agent": e.get("written_by", ""), "item": item,
             "kind": kind, "value": value,
-            "raw": e.get("raw_message") or e.get("interpretation", ""),
+            "raw": f"{said} | {meant}" if said and meant and said != meant else said or meant,
             "ref": ref, "fixes": e.get("supersedes_event_id", ""),
         })
 

@@ -21,6 +21,12 @@ from .schema import SCHEMA_VERSION, TABS
 from .store import PwError, Workbook
 
 
+# One module per store importer: snapshot() for it to read, apply() for what it
+# wrote. Each speaks its importer's own file format. The lease is the same
+# for every store.
+BRIDGES = {"costco": costco_bridge}
+
+
 def _backend(args):
     if args.file:
         return FileBackend(args.file)
@@ -76,6 +82,14 @@ def run(args) -> None:
     backend = _backend(args)
     wb = Workbook(backend, agent=args.agent)
     cmd = args.cmd
+    if cmd in ("init", "migrate"):
+        # --reset is for re-running a migration into the new sheet. It must
+        # never reach the old one, whose Config and Items would be wiped.
+        old = backend.read(["Config", "Events", "RetailMemory"])
+        version = next((r[1] for r in old["Config"][1:] if len(r) > 1 and r[0] == "schema_version"), "")
+        if old["Events"] or old["RetailMemory"] or (version and version != SCHEMA_VERSION):
+            raise PwError("This is a schema 0.3 workbook, or some other sheet pw did not make. "
+                          "Nothing was changed. Point pw at a new, empty sheet; see docs/MIGRATION.md.")
     if cmd in ("init", "migrate") and not args.reset:
         # Both commands start from empty headers. Never do that to a sheet in use.
         have = backend.read(["List", "Items", "Log", "Lines"])
@@ -127,13 +141,16 @@ def run(args) -> None:
         _out({"v_Items": len(rows)})
     elif cmd == "sync":
         wb.load("Config")
+        bridge = BRIDGES.get(ops.slug(args.store))
+        if bridge is None and args.action != "lease":
+            raise PwError(f"No importer bridge for {args.store!r}. Known: {sorted(BRIDGES)}.")
         if args.action == "snapshot":
             tier = brief_mod.trip_tier(wb, args.store) if args.trip else None
-            _out(costco_bridge.snapshot(wb, args.store, (tier["tier0"] + tier["tier1"]) if tier else None))
+            _out(bridge.snapshot(wb, args.store, (tier["tier0"] + tier["tier1"]) if tier else None))
         elif args.action == "lease":
             _out(costco_bridge.lease(wb, args.store, args.agent, args.hours, args.location, args.status))
         else:
-            _out(costco_bridge.apply(wb, _read_json(args.mutations), args.store))
+            _out(bridge.apply(wb, _read_json(args.mutations), args.store))
     elif cmd == "migrate":
         old = json.load(open(args.old, encoding="utf-8")) if args.old else \
             SheetsBackend(args.old_sheet).read(["Config", "Items", "RetailMemory", "Integrations", "Events"])
