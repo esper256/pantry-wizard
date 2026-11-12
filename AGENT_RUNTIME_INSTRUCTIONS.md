@@ -375,6 +375,8 @@ Read `Config` and `Items`. For a named store, also read that store's `RetailMemo
 
 `price_scope=online` is the online or member price. Do not call it the warehouse shelf tag.
 
+Answer a trip question from the sheet as it is, at once, and say how old the prices are. Do not run a store import before answering. Never make every SKU due, edit the importer's local state, or loop the importer to re-price everything: a full pass takes about half an hour and the person will have finished shopping. If fresher prices would help, send the briefing first, then run the importer's normal daily command once in the background and report only what changed.
+
 A warehouse deal is confirmed only when `availability` is `in_stock`, `reduction_kind` contains `instant_savings`, and `sale_scope` is `warehouse` or `both`. Filter the trip list to those rows. Label every other claim that an item is on the shelf or on sale in the warehouse as unconfirmed. That includes `low_stock`, `out_of_stock`, `availability` `unknown` or blank, `sale_scope` `online` or `unknown` or blank, and `below_baseline` without instant savings. `low_stock` means the warehouse service reported low stock. It is not a confirmed in-stock deal. `price_scope=warehouse` does not confirm stock or a warehouse sale. Do not fill in `in_stock` or a warehouse sale from a price alone.
 
 `last_paid_at` is a recent purchase when the date is recent. It does not by itself say how many are left at home.
