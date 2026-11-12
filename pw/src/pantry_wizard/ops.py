@@ -102,7 +102,7 @@ def apply(wb: Workbook, ops: list[dict], by: str = "", raw: str = "", ref: str =
 
     With `check`, everything is validated and reported and nothing is written.
     """
-    wb.load("Config", "Sources", "List", "Items", "Log", "Questions", "Products")
+    wb.load("Config", "Sources", "List", "Items", "Log", "Questions", "Products", "Notes")
     results = []
     for n, op in enumerate(ops):
         op = dict(op)
@@ -149,6 +149,17 @@ def _log(wb, op, kind: str, item: str = "", value: str = "", fixes: str = "", re
 # -- the list ----------------------------------------------------------------
 
 
+def _any_of(wb, op) -> str:
+    """Item keys any one of which satisfies the request. Each must exist."""
+    keys = op.get("any_of") or []
+    if isinstance(keys, str):
+        keys = split_list(keys)
+    out = []
+    for key in keys:
+        out.append(_item(wb, slug(key))["item"])
+    return "; ".join(out)
+
+
 def _list_row(wb, op, kind: str) -> dict:
     item = _item(wb, op["item"]) if op.get("item") else None
     text = str(op.get("text") or (item or {}).get("name") or "").strip()
@@ -162,6 +173,7 @@ def _list_row(wb, op, kind: str) -> dict:
         "max_price": op.get("max_price", ""), "until": op.get("until", ""),
         "by": op["by"], "at": wb.stamp(), "agent": wb.agent,
         "raw": op.get("raw", ""), "ref": op.get("ref", ""), "status": "open",
+        "any_of": _any_of(wb, op),
     })
 
 
@@ -200,13 +212,43 @@ def close_rows(wb, rows: list[dict], status: str, by: str, closed_ref: str = "")
     return [r["text"] for r in rows]
 
 
+def _open_texts(wb) -> list[str]:
+    return [r["text"] for r in wb.t("List").where(status="open") if r["kind"] in ("buy", "remind")]
+
+
 def op_done(wb, op):
     rows = [r for r in _open_rows(wb, op) if r["kind"] in ("buy", "remind")]
+    if not rows:
+        raise PwError(f"Nothing open matches that to close. Open now: {_open_texts(wb) or 'nothing'}.")
     return {"closed": close_rows(wb, rows, "done", op["by"], op.get("closed_ref", ""))}
 
 
 def op_cancel(wb, op):
-    return {"cancelled": close_rows(wb, _open_rows(wb, op), "cancelled", op["by"])}
+    rows = _open_rows(wb, op)
+    if not rows:
+        raise PwError(f"Nothing open matches that to cancel. Open now: {_open_texts(wb) or 'nothing'}.")
+    return {"cancelled": close_rows(wb, rows, "cancelled", op["by"])}
+
+
+def op_reopen(wb, op):
+    """Reverse a close that should not have happened, keeping the original asker."""
+    closed = [r for r in wb.t("List").rows if r["status"] in ("done", "cancelled", "expired")]
+    if op.get("id"):
+        match = [r for r in closed if r["id"] == op["id"]]
+    elif op.get("item"):
+        match = [r for r in closed if r["item"] == op["item"]]
+    elif op.get("text"):
+        want = op["text"].strip().casefold()
+        match = [r for r in closed if r["text"].casefold() == want]
+    else:
+        raise PwError("reopen needs an id, an item or the text of the request")
+    if not match:
+        raise PwError("Nothing closed matches that to reopen.")
+    # Reverse the most recent close only, so an old one is not resurrected.
+    row = max(match, key=lambda r: r["closed_at"])
+    wb.set("List", row["id"], {"status": "open", "closed_at": "", "closed_by": "", "closed_ref": ""})
+    _log(wb, op, "fix", row["item"], f'reopened: {row["text"]}')
+    return {"reopened": row["text"], "asked_by": row["by"]}
 
 
 def expire(wb) -> list[str]:
@@ -220,10 +262,29 @@ def expire(wb) -> list[str]:
 
 
 def op_saw(wb, op):
-    kind = _choice(op.get("kind"), [k for k in S.LOG_KINDS if k != "set"], "kind")
+    if not op.get("item"):
+        # An observation about no single item: "we're out of fruit." Kept in
+        # the person's words and found by `pw said`, but holds no stock meaning.
+        text = str(op.get("value") or op.get("raw") or op.get("text") or "").strip()
+        if not text:
+            raise PwError("saw needs an item, or some words for a general remark")
+        _log(wb, op, "remark", "", text)
+        return {"logged": f"remark: {text}"}
+    kind = _choice(op.get("kind"), [k for k in S.LOG_KINDS if k not in ("set", "remark")], "kind")
     item = _item(wb, op.get("item"))
     _log(wb, op, kind, item["item"], str(op.get("value") or ""), op.get("fixes", ""))
     return {"logged": f'{item["name"]}: {kind}'}
+
+
+def op_note(wb, op):
+    """A standing fact about the household, not tied to an item or a date's stock."""
+    text = str(op.get("text") or op.get("raw") or "").strip()
+    if not text:
+        raise PwError("note needs text")
+    row = wb.append("Notes", {
+        "id": wb.new_id(), "at": wb.stamp(), "by": op["by"], "text": text, "status": "open",
+    })
+    return {"note": row["id"], "text": text}
 
 
 # -- items and products ------------------------------------------------------
@@ -335,7 +396,8 @@ def op_receipt(wb, op):
 
 HANDLERS = {
     "add": op_add, "skip": op_skip, "remind": op_remind, "done": op_done,
-    "cancel": op_cancel, "saw": op_saw, "new_item": op_new_item,
+    "cancel": op_cancel, "reopen": op_reopen, "saw": op_saw, "note": op_note,
+    "new_item": op_new_item,
     "set_item": op_set_item, "link": op_link, "classify": op_classify,
     "ask": op_ask, "answer": op_answer, "receipt": op_receipt,
 }
@@ -372,8 +434,9 @@ def open_list(wb: Workbook, store: str = "") -> dict:
             m = merged.setdefault(key, {
                 "item": r["item"], "text": r["text"], "qty": [], "by": [], "since": r["at"][:10],
                 "store": stores, "only_at": only_at, "only_if": "", "max_price": "", "ids": [],
-                "conditions": set(),
+                "any_of": set(), "conditions": set(),
             })
+            m["any_of"].update(split_list(r["any_of"]))
             if r["qty"] and r["qty"] not in m["qty"]:
                 m["qty"].append(r["qty"])
             if r["by"] not in m["by"]:
@@ -383,6 +446,7 @@ def open_list(wb: Workbook, store: str = "") -> dict:
             m["conditions"].add(r["only_if"])
             m["max_price"] = m["max_price"] or r["max_price"]
     for m in merged.values():
+        m["any_of"] = sorted(m["any_of"])
         said = m.pop("conditions")
         rule = items.get(m["item"]) or {} if m["item"] else {}
         if "any_price" in said:

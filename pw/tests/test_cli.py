@@ -57,6 +57,23 @@ class CliTests(unittest.TestCase):
         self.assertIn("already holds household data", wipe.stderr)
         self.assertEqual(len(json.loads(self.pw("list").stdout)["buy"]), 2)
 
+    def test_item_takes_several_and_context_is_a_digest(self):
+        self.tmp = tempfile.mkdtemp()
+        self.path = os.path.join(self.tmp, "book.json")
+        self.pw("init", "--timezone", "America/Los_Angeles")
+        self.pw("apply", "--by", "alex", "-", stdin=json.dumps([
+            {"op": "new_item", "name": "Watermelon", "new_source": True},
+            {"op": "new_item", "name": "Cantaloupe"},
+            {"op": "note", "text": "milk means oat milk"}]))
+        several = json.loads(self.pw("item", "watermelon", "cantaloupe").stdout)
+        self.assertEqual([i["name"] for i in several], ["Watermelon", "Cantaloupe"])
+        self.assertEqual(json.loads(self.pw("item", "watermelon").stdout)["name"], "Watermelon")
+        both = json.loads(self.pw("purchases", "--item", "watermelon", "cantaloupe").stdout)
+        self.assertEqual(both["covers"]["item"], ["watermelon", "cantaloupe"])
+        ctx = json.loads(self.pw("context").stdout)
+        self.assertIn("milk means oat milk", ctx["notes"])
+        self.assertEqual({i["name"] for i in ctx["items"]}, {"Watermelon", "Cantaloupe"})
+
     def test_init_and_migrate_never_touch_a_schema_03_sheet(self):
         self.tmp = tempfile.mkdtemp()
         self.path = os.path.join(self.tmp, "old.json")

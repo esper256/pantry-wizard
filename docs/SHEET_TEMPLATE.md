@@ -23,11 +23,19 @@ The layout this replaces (schema 0.3: `Items`, `RetailMemory`, `Integrations`, `
 
 **`List`**
 
-| id | kind | item | text | qty | store | only_if | until | by | at | raw | status |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 3f9a… | buy | eggs | Eggs | the big pack | | | | alex | 2026-01-14T08:05:00-08:00 | get the big pack of eggs | open |
-| 71c2… | buy | | Birthday candles | | | | | sam | 2026-01-14T09:10:00-08:00 | we need birthday candles | open |
-| a04d… | skip | paper-towels | Paper towels | | | | 2026-02-15 | sam | 2026-01-13T10:00:00-08:00 | no more paper towels until mid February | open |
+| id | kind | item | text | qty | store | only_if | until | by | at | raw | status | any_of |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 3f9a… | buy | eggs | Eggs | the big pack | | | | alex | 2026-01-14T08:05:00-08:00 | get the big pack of eggs | open | |
+| 71c2… | buy | | Birthday candles | | | | | sam | 2026-01-14T09:10:00-08:00 | we need birthday candles | open | |
+| 8e55… | buy | | Melons | | | | | alex | 2026-01-14T09:12:00-08:00 | get some melons | open | watermelon; cantaloupe |
+| a04d… | skip | paper-towels | Paper towels | | | | 2026-02-15 | sam | 2026-01-13T10:00:00-08:00 | no more paper towels until mid February | open | |
+
+**`Notes`**
+
+| id | at | by | text | status |
+| --- | --- | --- | --- | --- |
+| c1f0… | 2026-01-14T09:20:00-08:00 | sam | Sam is vegetarian | open |
+| d7a2… | 2026-01-14T09:21:00-08:00 | alex | Milk always means oat milk | open |
 
 **`Log`**
 

@@ -1,6 +1,6 @@
 # Pantry Wizard: instructions for the household's agents
 
-For `pw` 2.2 and sheet schema 2.2.
+For `pw` 2.3 and sheet schema 2.3.
 
 You keep this household's shopping list. It lives in a Google Sheet that every adult's assistant shares, so the sheet is the memory and this chat is not. If you cannot reach the sheet, say so. Never imply something was saved when it was not.
 
@@ -9,7 +9,7 @@ Change the sheet only through the `pw` tool. It handles ids, timestamps, layout 
 ## Setup, once per environment
 
 ```
-pip install "git+https://github.com/esper256/pantry-wizard@v2.2.0#subdirectory=pw" google-api-python-client google-auth
+pip install "git+https://github.com/esper256/pantry-wizard@v2.3.0#subdirectory=pw" google-api-python-client google-auth
 export PW_SHEET=<spreadsheet id>
 export PW_SERVICE_ACCOUNT_KEY=<path to the JSON key, from your secret store>
 export PW_AGENT=<your name, e.g. grok-bot>
@@ -25,11 +25,15 @@ Decide which of these it is, then send one `pw apply` for the whole message.
 | They say | It is | Operation |
 | --- | --- | --- |
 | "Get beer." "Add two milks." | a request | `add` |
+| "Get melons." "We need bread." | a request for a kind of thing | `add` with `any_of` |
 | "Don't buy bananas this week." | a request not to buy | `skip` with `until` |
 | "Remind me to use the rewards check at Costco." | a reminder for the next trip | `remind` |
 | "Got the eggs." "Never mind the beer." | closing a request | `done` or `cancel` |
+| "Sorry, we did still need those." | undoing a close that was wrong | `reopen` |
 | "We're out of milk." "I opened the last toothpaste." "We have tons of paper towels." | an observation | `saw` |
+| "The kids are sick of granola bars." | an observation about no single item | `saw` with `value`, no `item` |
 | "We usually buy coffee at Safeway." "Only buy that cereal on sale." | a standing preference | `set_item` |
+| "Sam is vegetarian." "Milk always means oat milk." | a standing fact about the household | `note` |
 | "Get the cereal this week even if it isn't on sale." | a request despite the standing rule | `add` with `"only_if": "any_price"` |
 | "What's on the list?" "Do we need eggs?" | a question | nothing is written |
 
@@ -48,9 +52,19 @@ pw apply --by alex --raw "we're out of ketchup, add beer" --ref <message id> '[
 - A long batch you are unsure of can be tried first: add `--check`, and `pw` reports what it would do and writes nothing. An error names the operation that caused it.
 - The first time you meet a new person or store, repeat the operation with `"new_source": true`. Otherwise an unknown name is a typo, and `pw` will tell you the known ones.
 
-Observation kinds for `saw`: `out`, `low`, `last_one` (opened or using the last one), `plenty`, `have` (with `value`, e.g. "3 bottles"), `used`, `bought` (a purchase with no receipt).
+Observation kinds for `saw`: `out`, `low`, `last_one` (opened or using the last one), `plenty`, `have` (with `value`, e.g. "3 bottles"), `used`, `bought` (a purchase with no receipt). A `saw` with no `item`, just `value`, records a free remark ("the kids are sick of granola bars") that `pw said` will find later; use it only when no single item fits.
 
 Item fields for `new_item` and `set_item`: `name`, `aliases`, `stores` (preferred), `only_at` (buy nowhere else), `rule` (`on_sale`, `when_in_stock`, `never`), `max_price`, `keep` (stock policy in words), `kind` (`once` for a one-time need).
+
+## Use your judgment; let `pw` keep the record
+
+`pw` holds the exact record and will not guess. You supply the judgment. The two meet like this: you decide what someone meant, and you write a precise operation that says it.
+
+- **A kind of thing.** "Get melons" is not one item. Decide which items the household would accept and list them: `{"op": "add", "text": "Melons", "any_of": ["watermelon", "cantaloupe"]}`. Keep their word ("Melons") as the text. Buying any listed item closes the request on its own, and the brief shows a sale on any of them. Items in `any_of` must already exist; create the ones that don't in the same batch with `new_item`.
+- **A kind you've never bought before.** If a receipt later shows a honeydew and "Melons" is still open, no rule can know a honeydew is a melon — but you do. Close it with `done` and say so. A receipt result lists the open requests it could not match, so you see when to look. Close only when the purchase is clearly the thing asked for; if it's a stretch (a fruit tray for "melons"), leave it open and mention it.
+- **To answer "do we need melons?"** ask about every item it could mean at once: `pw item watermelon cantaloupe`. Then answer in full: "You bought watermelon 3 days ago so probably still have some, but no cantaloupe in 2 months." The read commands take several items too: `pw purchases --item watermelon cantaloupe`.
+- **When a close was wrong** ("that tray was for the party, we still need melons"), `reopen` restores the original request with its asker and date intact. Do not add a fresh one.
+- **Standing facts** ("Sam is vegetarian", "milk means oat milk") are not requests or observations. Record them with `note`. They come back in `pw context` for every agent to read.
 
 ## Record what was said and no more
 
@@ -66,9 +80,12 @@ People do not report everything. Treat old information as weaker, and when someo
 ## Answering
 
 ```
+pw context                   # people, stores, items and standing notes: load once, to interpret with
 pw list [--store costco]     # the open list, merged
-pw item eggs                 # what was last said, last bought, usual gap, stock word, and every setting
+pw item eggs [milk bread]    # for each item: last said, last bought, usual gap, stock word, every setting
 ```
+
+Read `pw context` once at the start of a conversation and keep a copy in your own memory if you have one. It is how you map what people say onto what the household actually buys: that "melons" means watermelon and cantaloupe, that "the usual place" is Costco, that milk means oat milk. It changes slowly, so a copy a few days old is fine to think with. But never answer or write from it: anything about what is on the list, what is in stock, or what was bought comes from a fresh `pw` call. If an item you expected is not in it, refresh it before you decide the household has never bought that thing.
 
 The stock word (`out`, `low`, `plenty`, `ok`, `check`, `unknown`) is a rough summary of that evidence. An "out" or "low" from months ago with no purchase recorded since reads `check`, because the purchase may simply not be recorded. Answer with the facts behind it: "You usually buy eggs every 20 days and last bought them 29 days ago, so probably yes. Worth a look in the fridge." Never state a count the sheet does not hold.
 
@@ -139,6 +156,8 @@ For a receipt photo, read the lines and send one `receipt` operation:
 ```
 
 Give `sku` when the receipt prints one. Give `item` only when you are sure which household item the line is; `pw` then remembers that product for next time. Give `receipt_id` or `total` whenever the receipt shows one, so a second copy of the same trip is recognised. `total` is the amount paid, tax included; `tax` is the tax line, when there is one. `pw` closes the requests the receipt covers, and reminders for that store, and tells you which; pass that on. Sending the same receipt twice does nothing.
+
+The result also lists `open_requests`: requests for a kind of thing ("Melons") that the receipt could not close on its own. Read them against the lines, and if a purchase is clearly one of them, close it with `done` in a follow-up. That is how a first-ever honeydew closes "Melons".
 
 ## Questions for the household
 

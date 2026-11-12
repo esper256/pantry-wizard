@@ -63,6 +63,9 @@ def upgrade(backend) -> dict:
 
     2.1 -> 2.2: `Receipts` gains `tax` and `savings`, and the `PriceHistory`
     tab is added, empty.
+
+    2.2 -> 2.3: `List` gains `any_of` (item keys any one of which satisfies a
+    request), and the `Notes` tab is added, empty.
     """
     raw = backend.read(list(S.TABS))
     config = raw.get("Config") or []

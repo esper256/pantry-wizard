@@ -25,6 +25,7 @@ def sheet_on_2_0():
     be.tabs["Sync"] = [OLD_SYNC, ["costco", "active", "663 Example City", "abc", "grok-bot",
                                   "2026-11-12T20:00:00-08:00", "2023-09-26", "2026-10-13",
                                   "2026-11-11T08:20:00-08:00", "No new receipts."]]
+    _strip_2_3(be)
     return be
 
 
@@ -39,7 +40,15 @@ def sheet_on_2_1():
     be.tabs["Receipts"] = [r[:-2] for r in be.tabs["Receipts"]]
     assert be.tabs["Receipts"][0][-1] == "account"
     del be.tabs["PriceHistory"]
+    _strip_2_3(be)
     return be
+
+
+def _strip_2_3(be):
+    """Remove what 2.3 added: the List `any_of` column and the Notes tab."""
+    be.tabs["List"] = [r[:-1] for r in be.tabs["List"]]
+    assert "any_of" not in be.tabs["List"][0]
+    del be.tabs["Notes"]
 
 
 class UpgradeTests(unittest.TestCase):
@@ -51,9 +60,13 @@ class UpgradeTests(unittest.TestCase):
         sync = [list(r) for r in be.tabs["Sync"]]
         report = migrate.upgrade(be)
         self.assertEqual((report["was"], report["schema"]), ("2.1", SCHEMA_VERSION))
-        self.assertEqual(report["changed"], ["Receipts: + tax, savings", "PriceHistory: + " + ", ".join(
-            TABS["PriceHistory"].columns)])
+        self.assertEqual(report["changed"], [
+            "List: + any_of",
+            "Notes: + " + ", ".join(TABS["Notes"].columns),
+            "Receipts: + tax, savings",
+            "PriceHistory: + " + ", ".join(TABS["PriceHistory"].columns)])
         self.assertEqual(be.tabs["Sync"], sync)
+        self.assertEqual(be.tabs["Notes"], [list(TABS["Notes"].columns)])
         self.assertEqual(be.tabs["PriceHistory"], [list(TABS["PriceHistory"].columns)])
         self.assertEqual(doctor(book(be)), [])
         self.assertEqual(rows(be, "Receipts")[0]["receipt"], "costco:B1")
@@ -71,7 +84,7 @@ class UpgradeTests(unittest.TestCase):
 
     def test_upgrade_adds_columns_and_keeps_every_row(self):
         be = sheet_on_2_0()
-        before = {t: [list(r) for r in be.tabs[t]] for t in ("Items", "List", "Lines", "Products", "Sources")}
+        before = {t: [list(r) for r in be.tabs[t]] for t in ("Items", "Lines", "Products", "Sources")}
         report = migrate.upgrade(be)
         self.assertEqual((report["was"], report["schema"]), ("2.0", SCHEMA_VERSION))
         self.assertEqual({t: be.tabs[t] for t in before}, before)

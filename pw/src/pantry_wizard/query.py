@@ -117,7 +117,8 @@ VIEWS = {
         """,
         "Everything people told an agent, requests and observations together, with their own "
         "words in `raw`. `kind` is buy, skip, remind, out, low, last_one, plenty, have, used, "
-        "bought, said, or set and fix (changes to settings and corrections)."),
+        "bought, remark (a free observation tied to no item), said, or set and fix (changes to "
+        "settings and corrections)."),
 }
 
 # Built in Python, from the same code `pw item` and the trip brief use.
@@ -421,7 +422,58 @@ def _day(text: str, flag: str) -> str:
         raise PwError(f"{flag} takes a date like 2026-10-01, not {text!r}") from None
 
 
-def show(wb, view: str, *, item: str = "", store: str = "", person: str = "", text: str = "",
+def context(wb) -> dict:
+    """A compact, slowly-changing digest to interpret what people say.
+
+    People, stores (and which have an importer), the items the household buys
+    with their aliases and rough rhythm, and the standing notes. Deliberately
+    no open list, stock words or last-purchase dates: those go stale and must
+    be read fresh. Stamped, so a reader knows how old a cached copy is.
+    """
+    from .ops import split_list
+
+    wb.load("Config", "Sources", "Items", "Products", "Sync", "Notes")
+    facts = stats.item_stats(wb, wb.now().date())
+    linked: dict[str, set] = {}
+    for p in wb.t("Products").rows:
+        if p["item"]:
+            linked.setdefault(p["item"], set()).add(p["store"])
+    importer_stores = {r["store"] for r in wb.t("Sync").rows}
+
+    def named(prefix: str) -> list[dict]:
+        return [{prefix: s["source"].split(":", 1)[1], "name": s["name"]}
+                for s in wb.t("Sources").rows if s["source"].startswith(f"{prefix}:")]
+
+    people = named("person")
+    stores = named("store")
+    for s in stores:
+        s["importer"] = s["store"] in importer_stores
+    items = []
+    for it in wb.t("Items").rows:
+        where = (split_list(it["only_at"]) or split_list(it["stores"])
+                 or sorted(linked.get(it["item"], ())))
+        row = {"item": it["item"], "name": it["name"]}
+        if it["aliases"]:
+            row["aliases"] = split_list(it["aliases"])
+        if where:
+            row["stores"] = where
+        for col in ("rule", "kind"):
+            if it[col]:
+                row[col] = it[col]
+        gap = facts.get(it["item"], {}).get("usual_gap_days", "")
+        if gap != "":
+            row["usual_gap_days"] = gap
+        items.append(row)
+    notes = [n["text"] for n in wb.t("Notes").rows if n["status"] == "open"]
+    return {
+        "as_of": wb.stamp(),
+        "note": "slowly-changing context to interpret with; read the list, stock and prices "
+                "fresh before answering or writing",
+        "people": people, "stores": stores, "items": items, "notes": notes,
+    }
+
+
+def show(wb, view: str, *, item="", store: str = "", person: str = "", text: str = "",
          status: str = "", since: str = "", until: str = "", days: int | None = None,
          deals: bool = False, by: str = "", limit: int = 50) -> dict:
     """One view, filtered. Returns what was asked, totals over everything matching, and rows."""
@@ -442,10 +494,10 @@ def _show(wb, db, view, item, store, person, text, status, since, until, days, d
 
     if item:
         need("item", "--item")
-        key = _item(wb, slug(item))["item"]
-        where.append("item = ?")
-        args.append(key)
-        covers["item"] = key
+        keys = [_item(wb, slug(i))["item"] for i in ([item] if isinstance(item, str) else item)]
+        where.append("item IN (%s)" % ", ".join("?" * len(keys)))
+        args += keys
+        covers["item"] = keys[0] if len(keys) == 1 else keys
     if store:
         need("store", "--store")
         key = _source(wb, "store", store, {})

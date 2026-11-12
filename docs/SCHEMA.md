@@ -1,4 +1,4 @@
-# Sheet schema 2.2
+# Sheet schema 2.3
 
 Reference for people changing `pw`. Agents do not need this page: they use `pw` commands and never address a tab or column themselves. The definitions live in `pw/src/pantry_wizard/schema.py`; if this page and that file disagree, the file is right.
 
@@ -21,6 +21,7 @@ Reference for people changing `pw`. Agents do not need this page: they use `pw` 
 | `Items` | thing the household tracks | `item` (readable, e.g. `eggs`) | agents | append; rare set |
 | `Log` | observation or audit entry | `id` | agents | append only |
 | `Questions` | banked judgment call | `id` | agents ask, people answer | append; set `answer`, `status` |
+| `Notes` | standing fact about the household | `id` | agents | append; set `status` |
 | `Products` | store product | `product` (`costco:1025795`) | appended the first time a SKU is seen on a receipt; agents set `item`, `kind`, `pack_qty`, `unit` | never rewritten |
 | `Offers` | product's current price and stock | `product` | importer only | replaced |
 | `Receipts` | receipt | `receipt` | importer, receipt operation | append; set `status` |
@@ -32,11 +33,13 @@ Reference for people changing `pw`. Agents do not need this page: they use `pw` 
 
 ## Columns worth explaining
 
-**`List`.** `kind` is `buy`, `skip` or `remind`. `item` is blank for a one-off; `text` is what the list should say. `qty` is free text in the requester's words. `only_if` is blank, `on_sale`, or `any_price` (buy it this once whatever the item's `rule` says). `until` expires a row. Duplicate open rows for one item are expected: they are merged on read and closed together.
+**`List`.** `kind` is `buy`, `skip` or `remind`. `item` is blank for a one-off; `text` is what the list should say. `qty` is free text in the requester's words. `only_if` is blank, `on_sale`, or `any_price` (buy it this once whatever the item's `rule` says). `any_of` is a `; `-separated list of item keys any one of which satisfies the request, for a request named as a kind of thing ("Melons" → `watermelon; cantaloupe`); buying any of them closes it. `until` expires a row. Duplicate open rows for one item are expected: they are merged on read and closed together.
 
 **`Items`.** `stores` are preferred stores; `only_at` restricts the item to those stores. `rule` is a standing instruction: `on_sale` (surface when there is a confirmed sale; a request for the item waits for one too), `when_in_stock` (mention when the store has it), `never`. `kind` `once` marks a one-time need that should not be suggested again. `keep` is stock policy in words. There are no inventory columns.
 
-**`Log`.** `kind` is `out`, `low`, `last_one`, `plenty`, `have`, `used`, `bought`, `said`, `set` or `fix`. The newest observation per item is the stock evidence. `set` rows are written by `pw` whenever an item or product is changed, with who asked and their words.
+**`Log`.** `kind` is `out`, `low`, `last_one`, `plenty`, `have`, `used`, `bought`, `remark`, `said`, `set` or `fix`. The newest observation per item is the stock evidence. `remark` is a free observation tied to no single item ("the kids are sick of granola bars"); it carries no stock meaning and is found through `pw said`. `set` rows are written by `pw` whenever an item or product is changed, with who asked and their words.
+
+**`Notes`.** A standing fact about the household that is not a request or an observation: "Sam is vegetarian", "milk means oat milk". `status` is `open` or `retired`. Agents read them through `pw context` to interpret what people say; they never change the list or stock.
 
 **`Products`.** `kind` is blank (unclassified), `consumable`, `once`, `seasonal` or `not_product` (deposits, fees). Blank lets behaviour decide: bought on two or more dates in the last year counts as a habit. `item` links the product to a household item. One item can have many products.
 
