@@ -15,9 +15,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-SCHEMA_VERSION = "2.2"
+SCHEMA_VERSION = "2.3"
 # Layouts `pw upgrade` can bring up to SCHEMA_VERSION in place.
-UPGRADABLE = ("2.0", "2.1")
+UPGRADABLE = ("2.0", "2.1", "2.2")
 
 
 @dataclass(frozen=True)
@@ -44,6 +44,10 @@ TABS: dict[str, Tab] = {
                 "id", "kind", "item", "text", "qty", "store", "only_if",
                 "max_price", "until", "by", "at", "agent", "raw", "ref",
                 "status", "closed_at", "closed_by", "closed_ref",
+                # Item keys any one of which satisfies the request. "Melons"
+                # carries watermelon and cantaloupe; buying any closes it. The
+                # person's own word stays in `text`.
+                "any_of",
             ),
             "declared",
         ),
@@ -69,6 +73,10 @@ TABS: dict[str, Tab] = {
             ),
             "declared",
         ),
+        # Standing facts about the household that are not tied to one item:
+        # "Sam is vegetarian", "we are cutting back on sugar". Agents read them
+        # to interpret what is said; they are never a request or an observation.
+        Tab("Notes", ("id", "at", "by", "text", "status"), "declared"),
         # The importer appends a row the first time a product is bought and
         # never touches it again. `item`, `kind`, `pack_qty` and `unit` belong
         # to the household.
@@ -153,8 +161,11 @@ PRODUCT_KINDS = ("", "consumable", "once", "seasonal", "not_product")
 # receipt. `said` and `set` are audit rows and carry no stock meaning.
 LOG_KINDS = (
     "out", "low", "last_one", "plenty", "have", "used", "bought",
-    "said", "set", "fix",
+    # `remark` is a free observation tied to no single item ("we're out of
+    # fruit"). `said` and `set` are audit rows and carry no stock meaning.
+    "remark", "said", "set", "fix",
 )
+NOTE_STATUS = ("open", "retired")
 OBSERVATIONS = ("out", "low", "last_one", "plenty", "have")
 AVAILABILITY = ("", "in_stock", "low_stock", "out_of_stock", "unknown")
 SALE_SCOPE = ("", "warehouse", "online", "both", "unknown")

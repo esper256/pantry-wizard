@@ -39,7 +39,7 @@ SHOWS = {
                                                                          "history", *_DATES)),
 }
 SHOW_FLAGS = {
-    "item": {"help": "an item key or name"},
+    "item": {"nargs": "+", "help": "one or more item keys or names"},
     "store": {"help": "a store"},
     "person": {"help": "who asked or said it"},
     "status": {"choices": ["open", "done", "cancelled", "expired"]},
@@ -143,16 +143,24 @@ def run(args) -> None:
         _out({"checked": done, "written": False} if args.check else done)
     elif cmd == "item":
         wb.load("Config")
-        st = stats.item_stats(wb, wb.now().date()).get(args.item)
-        if st is None:
-            raise PwError(f"No item {args.item!r}")
-        row = wb.t("Items").get(args.item)
-        st.update({k: row[k] for k in ("aliases", "kind", "stores", "only_at", "rule", "max_price", "keep", "note")})
-        st["products"] = [p["product"] for p in wb.t("Products").where(item=args.item)]
-        st["recent"] = [
-            {"at": r["at"][:10], "by": r["by"], "kind": r["kind"], "raw": r["raw"] or r["value"]}
-            for r in wb.t("Log").rows if r["item"] == args.item][-5:]
-        _out(st)
+        facts = stats.item_stats(wb, wb.now().date())
+        out = []
+        for key in args.item:
+            key = ops.slug(key)
+            st = facts.get(key)
+            if st is None:
+                raise PwError(f"No item {key!r}")
+            row = wb.t("Items").get(key)
+            st.update({k: row[k] for k in ("aliases", "kind", "stores", "only_at", "rule",
+                                           "max_price", "keep", "note")})
+            st["products"] = [p["product"] for p in wb.t("Products").where(item=key)]
+            st["recent"] = [
+                {"at": r["at"][:10], "by": r["by"], "kind": r["kind"], "raw": r["raw"] or r["value"]}
+                for r in wb.t("Log").rows if r["item"] == key][-5:]
+            out.append(st)
+        _out(out[0] if len(out) == 1 else out)
+    elif cmd == "context":
+        _out(query.context(wb))
     elif cmd == "brief":
         wb.load("Config")
         if args.changes:
@@ -245,8 +253,9 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--raw", help="their words")
     s.add_argument("--ref", help="chat message id; makes a retry harmless")
     s.add_argument("--check", action="store_true", help="validate and report the batch; write nothing")
-    s = sub.add_parser("item", help="what is known about one item")
-    s.add_argument("item")
+    s = sub.add_parser("item", help="what is known about one or more items")
+    s.add_argument("item", nargs="+", help="one or more item keys or names")
+    sub.add_parser("context", help="a stamped digest of people, stores, items and notes, to interpret with")
     s = sub.add_parser("brief", help="trip brief for a store, from current data")
     s.add_argument("store")
     s.add_argument("--changes", action="store_true", help="what moved since the last brief")

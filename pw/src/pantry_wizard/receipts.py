@@ -70,7 +70,7 @@ def _same_trip(wb, other: dict, store: str, receipt_id: str, date: str, total: s
 
 
 def ingest(wb: Workbook, rec: dict, by: str) -> dict:
-    from .ops import _source, close_rows, slug
+    from .ops import _source, close_rows, slug, split_list
 
     wb.load("Sources", "Receipts", "Lines", "Products", "List", "Items", "Log")
     store = _source(wb, "store", rec.get("store", ""), rec)
@@ -163,20 +163,35 @@ def ingest(wb: Workbook, rec: dict, by: str) -> dict:
     # A receipt is proof enough. Requests it covers close without asking, and
     # the agent tells the person what closed. A request made after the trip
     # is a new request: a receipt that posts late must not close it.
+    bought = set(bought_items)
     closed = []
     if status == "recorded":
         for row in wb.t("List").where(status="open"):
             stores = [s.strip() for s in row["store"].split(";") if s.strip()]
             if row["at"][:10] > date:
                 continue
-            covered = row["kind"] == "buy" and row["item"] and row["item"] in bought_items \
-                and (not stores or store in stores)
+            here = not stores or store in stores
+            # The named item, or any item the request said would do ("Melons").
+            covered = row["kind"] == "buy" and here and (
+                (row["item"] and row["item"] in bought)
+                or bool(set(split_list(row["any_of"])) & bought))
             # A reminder for this store was for this trip.
             reminded = row["kind"] == "remind" and store in stores
             if covered or reminded:
                 closed += close_rows(wb, [row], "done", by, key)
+
+    # Requests a receipt cannot close on its own: a kind of thing ("Melons")
+    # that a first-ever melon would satisfy, but only a person's judgment can
+    # say so. The agent reads these against the lines and closes by meaning.
+    open_requests = [
+        {"id": row["id"], "text": row["text"], "any_of": split_list(row["any_of"])}
+        for row in wb.t("List").where(status="open")
+        if row["kind"] == "buy" and not row["item"] and row["at"][:10] <= date
+        and (not [s.strip() for s in row["store"].split(";") if s.strip()]
+             or store in [s.strip() for s in row["store"].split(";")])
+    ]
     return {
         "receipt": key, "lines": len(lines), "closed": sorted(set(closed)),
         "superseded": superseded, "unlinked_lines": unlinked, "linked_products": linked,
-        "status": status,
+        "status": status, "bought": sorted(bought), "open_requests": open_requests,
     }
