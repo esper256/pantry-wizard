@@ -152,7 +152,7 @@ class SheetsBackendTests(unittest.TestCase):
     def test_init_adds_every_tab_with_its_headers(self):
         for name, tab in TABS.items():
             self.assertEqual(self.api.grids[name][0], list(tab.columns))
-        self.assertEqual(self.api.grids["Config"][1][:2], ["schema_version", "2.0"])
+        self.assertEqual(self.api.grids["Config"][1][:2], ["schema_version", "2.1"])
 
     def test_a_message_is_one_batch_read_then_appends_and_one_cell_update(self):
         ops.apply(self.book(), [{"op": "new_item", "name": "Eggs", "new_source": True},
@@ -200,6 +200,24 @@ class SheetsBackendTests(unittest.TestCase):
         self.api.fail_after_append = 1
         ops.apply(self.book(), [{"op": "new_item", "name": "Milk", "new_source": True}], by="alex")
         self.assertEqual([r[0] for r in self.api.grids["Items"]], ["item", "milk"])
+
+    def test_upgrade_writes_new_headers_beside_the_old_ones(self):
+        ops.apply(self.book(), [{"op": "receipt", "store": "costco", "date": "2026-10-13", "receipt_id": "B1",
+                                 "source": "import", "new_source": True,
+                                 "lines": [{"sku": "1", "text": "MILK"}]}], by="alex")
+        grids = self.api.grids
+        grids["Config"][1][1] = "2.0"
+        for line in grids["Receipts"]:
+            del line[11:]                                      # as 2.0 left it
+        grids["Sync"] = [["store", "status", "location", "membership_fingerprint", "owner", "lease_until",
+                          "history_from", "history_through", "last_sync_at", "last_summary"],
+                         ["costco", "active", "663 Example City", "abc", "grok-bot"]]
+        report = migrate.upgrade(self.be)
+        self.assertEqual(report["changed"], ["Receipts: + account", "Sync: + sync, account, prices"])
+        self.assertEqual(grids["Receipts"][0][-2:], ["at", "account"])
+        self.assertEqual(grids["Sync"][1][:4], ["costco:primary", "costco", "primary", "yes"])
+        self.assertEqual(grids["Config"][1][:2], ["schema_version", "2.1"])
+        self.assertEqual(Workbook(self.be, now=NOW).t("Receipts").rows[0]["receipt"], "costco:B1")
 
     def test_replacing_a_tab_with_fewer_rows_leaves_nothing_behind(self):
         wb = self.book().load("Config", "Offers")

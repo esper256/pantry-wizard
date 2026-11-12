@@ -1,4 +1,4 @@
-# Sheet schema 2.0
+# Sheet schema 2.1
 
 Reference for people changing `pw`. Agents do not need this page: they use `pw` commands and never address a tab or column themselves. The definitions live in `pw/src/pantry_wizard/schema.py`; if this page and that file disagree, the file is right.
 
@@ -25,7 +25,7 @@ Reference for people changing `pw`. Agents do not need this page: they use `pw` 
 | `Offers` | product's current price and stock | `product` | importer only | replaced |
 | `Receipts` | receipt | `receipt` | importer, receipt operation | append; set `status` |
 | `Lines` | receipt line | `line` | importer, receipt operation | append only |
-| `Sync` | store importer | `store` | importer; lease by the owning agent | replaced |
+| `Sync` | store account an importer reads | `sync` (`costco:primary`) | importer; lease by the owning agent | replaced |
 | `v_Items` | item | `item` | `pw sync apply`, `pw rebuild` | replaced |
 | `v_Brief` | line of the last brief per store | `key` | `pw brief` | replaced |
 
@@ -42,6 +42,8 @@ Reference for people changing `pw`. Agents do not need this page: they use `pw` 
 **`Offers`.** `sale` is blank or `instant_savings`, the store's own promotion. `usual_price` is the importer's non-sale baseline. `changed_at` moves when a value moves; `checked_at` moves whenever the store answered for that product, changed or not. `misses` counts consecutive lookups the store answered without a price.
 
 **`Receipts`.** `source` is `import`, `photo` or `manual`. The key is `<store>:<id>` for an import and `<source>:<store>:<id>` otherwise, where the id is the one printed on the receipt, or the date and total, or the date and a short hash of the lines. `status` is `recorded` or `superseded`. Two receipts are the same trip when the store matches and either the printed id matches, or the date matches and the totals agree or most SKUs are shared. An imported receipt supersedes a photo of the same trip, and the photo's lines stop counting. A second photo of a recorded trip is not stored. Nothing is deleted.
+
+**`Sync`.** A household can use several accounts at one store, such as two memberships. Each is a row with its own `membership_fingerprint`, `owner`, `lease_until` and history span, and its own run of the importer. `account` is a short label the household chooses; the first is `primary`. All accounts feed the same `Products`, `Lines` and `List`. Prices belong to the store, so `prices` is `yes` on exactly one account per store, and only that account's run refreshes `Offers`. `Receipts.account` says which account an imported receipt came from.
 
 **`Lines`.** `product` when the receipt printed a SKU; `item` when the agent matched the line directly and the product does not already say so (stores without SKUs, mostly). A SKU line that names an item links the product to it if the product has no link yet. `kind` is `purchase`, `refund` or `deposit`. `ref` keeps the importer's own idempotency key; only lines under `import` receipts are reported back to the importer as known.
 

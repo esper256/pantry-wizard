@@ -61,6 +61,9 @@ def has_costco_history(snapshot: Snapshot) -> bool:
     row = costco_integration(snapshot)
     if row is not None and (row.history_from or row.history_through):
         return True
+    if snapshot.history_per_account:
+        # The refs may all be another membership's. This one starts from the beginning.
+        return False
     return any(ref.startswith("costco:") for ref in snapshot.known_source_refs)
 
 

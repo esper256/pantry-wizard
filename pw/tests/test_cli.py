@@ -57,6 +57,8 @@ class CliTests(unittest.TestCase):
         leased = self.pw("--agent", "bot-a", "sync", "lease", "costco", "--location", "000 Example City")
         self.assertEqual(json.loads(leased.stdout)["owner"], "bot-a")
         self.assertEqual(self.pw("--agent", "bot-b", "sync", "lease", "costco").returncode, 1)
+        second = self.pw("--agent", "bot-b", "sync", "lease", "costco", "--account", "second")
+        self.assertEqual(json.loads(second.stdout)["sync"], "costco:second")
         snap = json.loads(self.pw("sync", "snapshot", "costco", "--trip").stdout)
         self.assertEqual(snap["priority_item_numbers"], [])
         self.assertEqual(snap["integrations"][0]["location"], "000 Example City")

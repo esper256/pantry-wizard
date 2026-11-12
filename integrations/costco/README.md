@@ -18,6 +18,8 @@ A trip refresh is different. When the snapshot carries `priority_item_numbers`, 
 
 Numbers in the snapshot's `non_product_item_numbers` are never priced.
 
+A household with two memberships runs the importer once per membership. Prices are the same whoever asks, so `pw sync snapshot` hands every account but one an empty `priority_item_numbers`, and that run imports receipts and prices nothing. See “A second account” in [SETUP.md](SETUP.md).
+
 A warehouse sale is recorded when Costco's price before the promotion is at least $0.10 above the price after it. The end date is kept when the promotion includes one. A price at least $0.10 under this household's non-sale baseline is `below_baseline`. That is not a warehouse sale, and a lower price than the last receipt is not one either. A per-pound quote for a variable-weight item is not compared with the package price on a receipt. The same price on a later day does not add another event.
 
 `price_scope=warehouse` is set only when the payload has a warehouse price field. A generic catalog price is recorded as `online` and is not the warehouse shelf tag.
@@ -57,7 +59,7 @@ costco-sync run \
 pw sync apply costco mutations.json
 ```
 
-`warehouses` lists recent warehouse numbers, names, and receipt counts. It writes no mutation file. `history` walks backward about a year at a time, or fetches only the gap when the snapshot already has Costco history. `run` uses the local cursor in `~/.costco-sync/state.db`. With no cursor it looks back 90 days. After that it asks for receipts since the day before the last success, and once a week it asks for the last 45 days, because a receipt can post to the account weeks after the trip. Lines already in the sheet are skipped, so asking again is safe. Receipt details are cached in that database so a later run does not download them again.
+`warehouses` lists recent warehouse numbers, names, and receipt counts. It writes no mutation file. `history` walks backward about a year at a time, or fetches only the gap when the snapshot already has Costco history. `run` uses the local cursor in `~/.costco-sync/state.db`, or in `~/.costco-sync/<account>/state.db` when `--account` names a login, so two memberships on one computer never share a cursor. With no cursor it looks back 90 days. After that it asks for receipts since the day before the last success, and once a week it asks for the last 45 days, because a receipt can post to the account weeks after the trip. Lines already in the sheet are skipped, so asking again is safe. Receipt details are cached in that database so a later run does not download them again.
 
 Import keeps receipts for the confirmed warehouse, the `location` of the `costco` entry under `integrations`. Receipts from every other warehouse are counted as skipped and are not written anywhere.
 
@@ -86,7 +88,7 @@ Grok Bot Secrets cannot feed this CLI. The refresh token has to be saved by `cos
 }
 ```
 
-`items` rows carry `item_id`, `canonical_name`, `aliases`, `purchase_intent` and `preferred_stores`. A product linked to an item appears in that item's `aliases` as `costco:<itemNumber>`. `retail_memory` has one row per product the household has bought at this warehouse, with the last price paid, the usual price, and the current offer. `known_source_refs` is the `source_ref` of every receipt line this importer already delivered. Re-running with those refs does not deliver the same line again. `priority_item_numbers` is present only for a trip refresh.
+`items` rows carry `item_id`, `canonical_name`, `aliases`, `purchase_intent` and `preferred_stores`. A product linked to an item appears in that item's `aliases` as `costco:<itemNumber>`. `retail_memory` has one row per product the household has bought at this warehouse, with the last price paid, the usual price, and the current offer. `known_source_refs` is the `source_ref` of every receipt line this importer already delivered. Re-running with those refs does not deliver the same line again. `priority_item_numbers` is present for a trip refresh, and empty for an account that does not refresh prices. `history_per_account` says the refs may include another account's receipts, so `history` decides between a full download and the gap from this account's own `history_from` and `history_through` alone.
 
 These names are the importer's own. They are older than the sheet's current layout and do not have to match it; `pw/src/pantry_wizard/costco_bridge.py` translates in both directions, and `pw/tests/test_importer.py` runs this package through it.
 

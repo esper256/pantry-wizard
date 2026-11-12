@@ -17,7 +17,7 @@ import time
 from . import brief as brief_mod
 from . import costco_bridge, migrate as migrate_mod, ops, stats
 from .backend import FileBackend, SheetsBackend
-from .schema import SCHEMA_VERSION, TABS
+from .schema import SCHEMA_VERSION, TABS, UPGRADABLE
 from .store import PwError, Workbook
 
 
@@ -47,12 +47,15 @@ def _read_json(arg: str | None):
 
 
 def doctor(wb: Workbook) -> list[str]:
-    wb.load(*TABS)
     have = wb.config("schema_version")
     if not have:
         return ["This sheet is not set up. Run `pw init --timezone <IANA zone> --currency <code>`."]
+    if have in UPGRADABLE:
+        return [f"This sheet is schema {have} and this pw is {SCHEMA_VERSION}. Run `pw upgrade`."]
     if have != SCHEMA_VERSION:
-        return [f"This sheet is schema {have} and this pw is {SCHEMA_VERSION}. See docs/MIGRATION.md."]
+        return [f"This sheet is schema {have} and this pw is {SCHEMA_VERSION}. Install the pw release "
+                "the sheet was made or upgraded with."]
+    wb.load(*TABS)
     problems = []
     items = wb.t("Items")
     sources = wb.t("Sources")
@@ -87,6 +90,8 @@ def run(args) -> None:
         # never reach the old one, whose Config and Items would be wiped.
         old = backend.read(["Config", "Events", "RetailMemory"])
         version = next((r[1] for r in old["Config"][1:] if len(r) > 1 and r[0] == "schema_version"), "")
+        if version in UPGRADABLE:
+            raise PwError(f"This sheet is schema {version}. Nothing was changed. Run `pw upgrade`.")
         if old["Events"] or old["RetailMemory"] or (version and version != SCHEMA_VERSION):
             raise PwError("This is a schema 0.3 workbook, or some other sheet pw did not make. "
                           "Nothing was changed. Point pw at a new, empty sheet; see docs/MIGRATION.md.")
@@ -146,11 +151,15 @@ def run(args) -> None:
             raise PwError(f"No importer bridge for {args.store!r}. Known: {sorted(BRIDGES)}.")
         if args.action == "snapshot":
             tier = brief_mod.trip_tier(wb, args.store) if args.trip else None
-            _out(bridge.snapshot(wb, args.store, (tier["tier0"] + tier["tier1"]) if tier else None))
+            _out(bridge.snapshot(wb, args.store, (tier["tier0"] + tier["tier1"]) if tier else None,
+                                 account=args.account))
         elif args.action == "lease":
-            _out(costco_bridge.lease(wb, args.store, args.agent, args.hours, args.location, args.status))
+            _out(costco_bridge.lease(wb, args.store, args.agent, args.hours, args.location, args.status,
+                                     account=args.account, prices=args.prices))
         else:
-            _out(bridge.apply(wb, _read_json(args.mutations), args.store))
+            _out(bridge.apply(wb, _read_json(args.mutations), args.store, account=args.account))
+    elif cmd == "upgrade":
+        _out(migrate_mod.upgrade(backend))
     elif cmd == "migrate":
         old = json.load(open(args.old, encoding="utf-8")) if args.old else \
             SheetsBackend(args.old_sheet).read(["Config", "Items", "RetailMemory", "Integrations", "Events"])
@@ -209,6 +218,10 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("action", choices=["snapshot", "apply", "lease"])
     s.add_argument("store")
     s.add_argument("mutations", nargs="?")
+    s.add_argument("--account", default="", help="which of the store's accounts; needed only when there "
+                   "is more than one. With lease, a new name adds an account")
+    s.add_argument("--prices", action="store_true",
+                   help="lease: make this the account that refreshes the store's prices")
     s.add_argument("--trip", action="store_true", help="snapshot: include the trip refresh list")
     s.add_argument("--hours", type=int, default=36, help="lease: how long to hold it")
     s.add_argument("--location", default="", help="lease: confirmed home location")
@@ -222,6 +235,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--store-name", action="append", default=[], metavar="LABEL=NAME",
                    help="an old store label and the store it means; an empty name drops it; repeatable")
     s.add_argument("--reset", action="store_true", help="wipe the new workbook first, e.g. to re-run")
+    sub.add_parser("upgrade", help="bring a sheet on an older 2.x schema up to this pw, in place")
     sub.add_parser("doctor", help="check the sheet for broken references")
     return p
 

@@ -21,6 +21,14 @@ What that means for the data:
 - A product row is appended the first time it is seen and never rewritten, so
   a link a person confirmed cannot be overwritten by a later sync.
 - Prices go to `Offers`, which only this module writes.
+
+A household can have several accounts at one store: two memberships, or a
+second card whose receipts the first login cannot see. Each account is its own
+`Sync` row with its own membership, lease and history, and its own run of the
+importer. All of them feed the same products, lines and list. Prices belong to
+the store and not to an account, so exactly one account per store refreshes
+`Offers`; the others are handed an empty price list and their offers are not
+read.
 """
 
 from __future__ import annotations
@@ -33,6 +41,7 @@ from .stats import product_stats, rebuild_v_items
 from .store import PwError, Workbook
 
 DEPOSIT_PREFIXES = ("CA REDEMP VAL",)
+DEFAULT_ACCOUNT = "primary"
 IMPORTER = "costco-sync"
 SYNC_FIELDS = ("status", "location", "membership_fingerprint", "history_from",
                "history_through", "last_sync_at", "last_summary")
@@ -47,22 +56,56 @@ def _plain(table) -> dict[str, dict]:
     return {r[table.tab.key]: {k: v for k, v in r.items() if k != "_row"} for r in table.rows}
 
 
+# -- accounts ----------------------------------------------------------------
+
+
+def which_account(wb: Workbook, store: str, account: str = "", new: bool = False) -> str:
+    """The account a command means.
+
+    Named: that one, which must exist unless it is being created. Not named:
+    the only account, or with several the one that refreshes prices, so a
+    household with one account never has to say which.
+    """
+    rows = wb.t("Sync").where(store=store)
+    label = slug(account)
+    if label:
+        if new or any(r["account"] == label for r in rows):
+            return label
+        known = [r["account"] for r in rows]
+        raise PwError(f"{store} has no account {label!r}. Known: {known or 'none yet'}. "
+                      f"`pw sync lease {store} --account {label}` adds it.")
+    if not rows:
+        return DEFAULT_ACCOUNT
+    pricing = [r for r in rows if r["prices"] == "yes"]
+    return (pricing or rows)[0]["account"]
+
+
 # -- lease -------------------------------------------------------------------
 
 
 def lease(wb: Workbook, store: str, owner: str, hours: int = 36,
-          location: str = "", status: str = "") -> dict:
-    """Claim or renew the right to run this store's importer.
+          location: str = "", status: str = "", account: str = "", prices: bool = False) -> dict:
+    """Claim or renew the right to run one account of this store's importer.
 
-    One agent schedules each store. A lease held by someone else and still in
-    the future is refused; that is household state, not an error to report.
+    One agent schedules each account. A lease held by someone else and still
+    in the future is refused; that is household state, not an error to report.
+    The first account of a store refreshes its prices. `prices` moves that
+    job to this account.
     """
     wb.load("Config", "Sources", "Sync")
     store = slug(store)
     if wb.t("Sources").get(f"store:{store}") is None:
         wb.append("Sources", {"source": f"store:{store}", "name": store.replace("-", " ").title()})
+    account = which_account(wb, store, account, new=True)
     rows = _plain(wb.t("Sync"))
-    row = rows.setdefault(store, {"store": store, "status": "setup"})
+    others = [r for r in rows.values() if r["store"] == store and r["account"] != account]
+    row = rows.setdefault(f"{store}:{account}", {
+        "sync": f"{store}:{account}", "store": store, "account": account, "status": "setup",
+        "prices": "" if any(r.get("prices") == "yes" for r in others) else "yes"})
+    if prices:
+        row["prices"] = "yes"
+        for other in others:
+            other["prices"] = ""
     held = row.get("lease_until", "")
     if row.get("owner") and row["owner"] != owner and held:
         try:
@@ -70,7 +113,8 @@ def lease(wb: Workbook, store: str, owner: str, hours: int = 36,
         except ValueError:
             still_held = False
         if still_held:
-            raise PwError(f'{row["owner"]} holds the {store} lease until {held}. Nothing was changed.')
+            raise PwError(f'{row["owner"]} holds the {store} {account} lease until {held}. '
+                          "Nothing was changed.")
     row["owner"] = owner
     row["lease_until"] = (wb.now() + timedelta(hours=hours)).replace(microsecond=0).isoformat()
     if location:
@@ -85,11 +129,15 @@ def lease(wb: Workbook, store: str, owner: str, hours: int = 36,
 # -- sheet -> snapshot -------------------------------------------------------
 
 
-def snapshot(wb: Workbook, store: str = "costco", priority: list[str] | None = None) -> dict:
+def snapshot(wb: Workbook, store: str = "costco", priority: list[str] | None = None,
+             account: str = "") -> dict:
     wb.load("Config", "Sources", "Items", "List", "Products", "Offers", "Receipts", "Lines", "Sync", "Log")
     store = slug(store)
     today = wb.now().date()
-    sync = wb.t("Sync").get(store) or {}
+    account = which_account(wb, store, account)
+    sync = wb.t("Sync").get(f"{store}:{account}") or {}
+    if sync and sync["prices"] != "yes":
+        priority = []  # another account of this store refreshes prices
     names = {r["source"].split(":", 1)[1]: r["name"] for r in wb.t("Sources").rows
              if r["source"].startswith("store:")}
     # The importer finds its rows by this name, so it is the importer's
@@ -147,11 +195,14 @@ def snapshot(wb: Workbook, store: str = "costco", priority: list[str] | None = N
         "items": items,
         "retail_memory": retail,
         "integrations": [integration] if integration else [],
-        # Only lines the importer itself wrote. A line read from a photo of
-        # the same receipt must not stop the official copy from arriving.
+        # Only lines an importer wrote, from any account. A line read from a
+        # photo of the same receipt must not stop the official copy arriving.
         "known_source_refs": sorted({l["ref"] for l in wb.t("Lines").rows
                                      if l["ref"] and l["receipt"] in imported}),
         "non_product_item_numbers": sorted(non_products),
+        # The refs above cover every account. Whether this account has been
+        # downloaded before is for its own row to say.
+        "history_per_account": True,
     }
     if priority is not None:
         snap["priority_item_numbers"] = priority
@@ -165,7 +216,7 @@ def _is_deposit(text: str) -> bool:
     return str(text or "").upper().startswith(DEPOSIT_PREFIXES)
 
 
-def apply(wb: Workbook, mut: dict, store: str = "costco") -> dict:
+def apply(wb: Workbook, mut: dict, store: str = "costco", account: str = "") -> dict:
     wb.load("Config", "Sources", "Items", "List", "Log", "Products", "Offers", "Receipts", "Lines", "Sync", "v_Items")
     store = slug(store)
     if wb.t("Sources").get(f"store:{store}") is None:
@@ -173,8 +224,17 @@ def apply(wb: Workbook, mut: dict, store: str = "costco") -> dict:
     if mut.get("events") and "receipts" not in mut:
         raise PwError("This mutation file has events and no receipts. It was written by an older "
                       "costco-sync. Reinstall integrations/costco and run it again. Nothing was written.")
+    account = which_account(wb, store, account)
+    sync = wb.t("Sync").get(f"{store}:{account}")
+    if sync is None:
+        raise PwError(f"{store} has no account {account!r}. Run `pw sync lease {store}` first.")
+    theirs = (mut.get("integration_upsert") or {}).get("membership_fingerprint", "")
+    if theirs and sync["membership_fingerprint"] and theirs != sync["membership_fingerprint"]:
+        raise PwError(f"This file was downloaded with a different membership than the {store} "
+                      f"{account} account. Say which account with --account. Nothing was written.")
+    prices = sync["prices"] == "yes"
     stamp = mut.get("generated_at") or wb.stamp()
-    report = {"receipts": 0, "lines": 0, "closed": [], "superseded": [], "new_products": 0,
+    report = {"account": account, "receipts": 0, "lines": 0, "closed": [], "superseded": [], "new_products": 0,
               "offers_written": 0, "links_filled": 0}
     products_before = len(wb.t("Products").rows)
 
@@ -182,7 +242,7 @@ def apply(wb: Workbook, mut: dict, store: str = "costco") -> dict:
     for rec in mut.get("receipts") or []:
         got = receipts.ingest(wb, {
             "store": store, "source": "import", "receipt_id": rec.get("barcode", ""),
-            "date": rec.get("date", ""),
+            "date": rec.get("date", ""), "account": account,
             "lines": [{
                 "sku": l.get("item_number", ""), "text": l.get("description", ""),
                 "name": l.get("name", ""), "qty": l.get("quantity", ""),
@@ -201,9 +261,10 @@ def apply(wb: Workbook, mut: dict, store: str = "costco") -> dict:
     #    changed, and separately says which numbers it asked about.
     products = wb.t("Products")
     offers = _plain(wb.t("Offers"))
-    upserts = mut.get("retail_memory_upserts") or []
-    checked = [str(sku) for sku in mut.get("checked_item_numbers") or []]
-    missed = [str(sku) for sku in mut.get("missed_item_numbers") or []]
+    #    Only the account that refreshes prices is listened to here.
+    upserts = (mut.get("retail_memory_upserts") or []) if prices else []
+    checked = [str(sku) for sku in mut.get("checked_item_numbers") or []] if prices else []
+    missed = [str(sku) for sku in mut.get("missed_item_numbers") or []] if prices else []
     for r in upserts:
         sku = str(r.get("retailer_sku") or "")
         if not sku:
@@ -271,7 +332,7 @@ def apply(wb: Workbook, mut: dict, store: str = "costco") -> dict:
     upsert = mut.get("integration_upsert")
     if upsert or summary:
         rows = _plain(wb.t("Sync"))
-        row = rows.setdefault(store, {"store": store})
+        row = rows[f"{store}:{account}"]
         for col in SYNC_FIELDS:
             if upsert and upsert.get(col) not in (None, ""):
                 row[col] = upsert[col]

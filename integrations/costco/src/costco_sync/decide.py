@@ -174,6 +174,7 @@ def snapshot_from_json(data: dict) -> Snapshot:
         known_source_refs=refs,
         priority_item_numbers=None if priority is None else [str(sku) for sku in priority if sku],
         non_product_item_numbers={str(sku) for sku in data.get("non_product_item_numbers") or [] if sku},
+        history_per_account=bool(data.get("history_per_account")),
     )
 
 

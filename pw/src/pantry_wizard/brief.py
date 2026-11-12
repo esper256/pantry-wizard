@@ -228,7 +228,7 @@ def build(wb, store: str) -> dict:
                     "key": f'instock:{p["product"]}:{offer["availability"]}',
                     "text": f'{item["name"]}: in stock at {_money(offer["price"])}.{low}'})
 
-    sync = wb.t("Sync").get(store) or {}
+    sync = next((r for r in wb.t("Sync").where(store=store, prices="yes")), {})
     return {
         "store": store,
         "provisional": True,

@@ -66,6 +66,9 @@ class Snapshot:
     priority_item_numbers: list[str] | None = None
     # Item numbers the household marked as not a product. They are never priced.
     non_product_item_numbers: set[str] = field(default_factory=set)
+    # True when known_source_refs may hold another account's receipts, so only
+    # this account's own row says whether it has downloaded its history.
+    history_per_account: bool = False
 
 
 @dataclass
