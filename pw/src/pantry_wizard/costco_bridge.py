@@ -43,6 +43,8 @@ from .store import PwError, Workbook
 DEPOSIT_PREFIXES = ("CA REDEMP VAL",)
 DEFAULT_ACCOUNT = "primary"
 IMPORTER = "costco-sync"
+# A change in any of these is a row in PriceHistory. Stock coming and going is not.
+PRICE_FIELDS = ("price", "regular_price", "sale", "sale_ends")
 SYNC_FIELDS = ("status", "location", "membership_fingerprint", "history_from",
                "history_through", "last_sync_at", "last_summary")
 
@@ -197,6 +199,12 @@ def snapshot(wb: Workbook, store: str = "costco", priority: list[str] | None = N
         "integrations": [integration] if integration else [],
         # Only lines an importer wrote, from any account. A line read from a
         # photo of the same receipt must not stop the official copy arriving.
+        # Receipts from this account that were imported before printed totals
+        # were kept. The importer answers from its saved copies.
+        "receipts_missing_totals": sorted(
+            r["receipt"].split(":", 1)[1] for r in wb.t("Receipts").rows
+            if r["store"] == store and r["source"] == "import" and not r["total"]
+            and (r["account"] or DEFAULT_ACCOUNT) == account),
         "known_source_refs": sorted({l["ref"] for l in wb.t("Lines").rows
                                      if l["ref"] and l["receipt"] in imported}),
         "non_product_item_numbers": sorted(non_products),
@@ -217,7 +225,8 @@ def _is_deposit(text: str) -> bool:
 
 
 def apply(wb: Workbook, mut: dict, store: str = "costco", account: str = "") -> dict:
-    wb.load("Config", "Sources", "Items", "List", "Log", "Products", "Offers", "Receipts", "Lines", "Sync", "v_Items")
+    wb.load("Config", "Sources", "Items", "List", "Log", "Products", "Offers", "PriceHistory", "Receipts",
+            "Lines", "Sync", "v_Items")
     store = slug(store)
     if wb.t("Sources").get(f"store:{store}") is None:
         raise PwError(f"Store {store!r} is not in Sources. Run `pw sync lease {store}` first.")
@@ -235,14 +244,15 @@ def apply(wb: Workbook, mut: dict, store: str = "costco", account: str = "") -> 
     prices = sync["prices"] == "yes"
     stamp = mut.get("generated_at") or wb.stamp()
     report = {"account": account, "receipts": 0, "lines": 0, "closed": [], "superseded": [], "new_products": 0,
-              "offers_written": 0, "links_filled": 0}
+              "offers_written": 0, "links_filled": 0, "totals_filled": 0}
     products_before = len(wb.t("Products").rows)
 
     # 1. Receipts. One already in the sheet is skipped whole.
     for rec in mut.get("receipts") or []:
         got = receipts.ingest(wb, {
             "store": store, "source": "import", "receipt_id": rec.get("barcode", ""),
-            "date": rec.get("date", ""), "account": account,
+            "date": rec.get("date", ""), "account": account, "total": rec.get("total", ""),
+            "tax": rec.get("tax", ""), "savings": rec.get("instant_savings", ""),
             "lines": [{
                 "sku": l.get("item_number", ""), "text": l.get("description", ""),
                 "name": l.get("name", ""), "qty": l.get("quantity", ""),
@@ -256,6 +266,14 @@ def apply(wb: Workbook, mut: dict, store: str = "costco", account: str = "") -> 
         report["lines"] += got["lines"]
         report["closed"] += got["closed"]
         report["superseded"] += got["superseded"]
+
+    #    Receipts imported before totals were kept get theirs filled in.
+    for t in mut.get("receipt_totals") or []:
+        row = wb.t("Receipts").get(f'{store}:{t.get("barcode", "")}')
+        if row is not None and row["source"] == "import" and not row["total"]:
+            wb.set("Receipts", row["receipt"], {
+                "total": t.get("total", ""), "tax": t.get("tax", ""), "savings": t.get("instant_savings", "")})
+            report["totals_filled"] += 1
 
     # 2. Current offers. The importer sends a row only when something on it
     #    changed, and separately says which numbers it asked about.
@@ -295,6 +313,10 @@ def apply(wb: Workbook, mut: dict, store: str = "costco", account: str = "") -> 
             new, checked_at=old.get("checked_at", ""), misses=old.get("misses", ""),
             changed_at=(r.get("observed_at", "") if moved else "") or old.get("changed_at", ""))
         report["offers_written"] += moved
+        if any(str(new[k] or "") != old.get(k, "") for k in PRICE_FIELDS):
+            wb.append("PriceHistory", dict(
+                {k: new[k] for k in PRICE_FIELDS}, id=wb.new_id(), product=key,
+                at=r.get("observed_at", "") or stamp))
     # `changed_at` moves when a value moves. `checked_at` records that the
     # store was asked, which is what tells a brief how fresh a quiet row is.
     for sku in checked:

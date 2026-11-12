@@ -1,4 +1,4 @@
-# Sheet schema 2.1
+# Sheet schema 2.2
 
 Reference for people changing `pw`. Agents do not need this page: they use `pw` commands and never address a tab or column themselves. The definitions live in `pw/src/pantry_wizard/schema.py`; if this page and that file disagree, the file is right.
 
@@ -25,6 +25,7 @@ Reference for people changing `pw`. Agents do not need this page: they use `pw` 
 | `Offers` | product's current price and stock | `product` | importer only | replaced |
 | `Receipts` | receipt | `receipt` | importer, receipt operation | append; set `status` |
 | `Lines` | receipt line | `line` | importer, receipt operation | append only |
+| `PriceHistory` | change in a product's price or sale | `id` | importer only | append only |
 | `Sync` | store account an importer reads | `sync` (`costco:primary`) | importer; lease by the owning agent | replaced |
 | `v_Items` | item | `item` | `pw sync apply`, `pw rebuild` | replaced |
 | `v_Brief` | line of the last brief per store | `key` | `pw brief` | replaced |
@@ -41,7 +42,9 @@ Reference for people changing `pw`. Agents do not need this page: they use `pw` 
 
 **`Offers`.** `sale` is blank or `instant_savings`, the store's own promotion. `usual_price` is the importer's non-sale baseline. `changed_at` moves when a value moves; `checked_at` moves whenever the store answered for that product, changed or not. `misses` counts consecutive lookups the store answered without a price.
 
-**`Receipts`.** `source` is `import`, `photo` or `manual`. The key is `<store>:<id>` for an import and `<source>:<store>:<id>` otherwise, where the id is the one printed on the receipt, or the date and total, or the date and a short hash of the lines. `status` is `recorded` or `superseded`. Two receipts are the same trip when the store matches and either the printed id matches, or the date matches and the totals agree or most SKUs are shared. An imported receipt supersedes a photo of the same trip, and the photo's lines stop counting. A second photo of a recorded trip is not stored. Nothing is deleted.
+**`Receipts`.** `source` is `import`, `photo` or `manual`. The key is `<store>:<id>` for an import and `<source>:<store>:<id>` otherwise, where the id is the one printed on the receipt, or the date and total, or the date and a short hash of the lines. `status` is `recorded` or `superseded`. Two receipts are the same trip when the store matches and either the printed id matches, or the date matches and the totals agree or most SKUs are shared. An imported receipt supersedes a photo of the same trip, and the photo's lines stop counting. A second photo of a recorded trip is not stored. Nothing is deleted. `total` is the amount paid as printed, `tax` the tax inside it, and `savings` the store's discounts on the trip, which the line prices already reflect. All three are blank when the receipt did not give them. An importer may fill them in later on a receipt it imported earlier; that is the only time a receipt's own figures are set after the fact.
+
+**`PriceHistory`.** A row is appended whenever a product's `price`, `regular_price`, `sale` or `sale_ends` differs from what `Offers` held, starting with the first time it is priced. Stock coming and going does not add a row. `Offers` stays the current state; this tab is how "what is the lowest it has been" can be answered. It starts on the day a sheet reaches 2.2, since earlier prices were overwritten.
 
 **`Sync`.** A household can use several accounts at one store, such as two memberships. Each is a row with its own `membership_fingerprint`, `owner`, `lease_until` and history span, and its own run of the importer. `account` is a short label the household chooses; the first is `primary`. All accounts feed the same `Products`, `Lines` and `List`. Prices belong to the store, so `prices` is `yes` on exactly one account per store, and only that account's run refreshes `Offers`. `Receipts.account` says which account an imported receipt came from.
 
@@ -56,5 +59,6 @@ Reference for people changing `pw`. Agents do not need this page: they use `pw` 
 | Last bought, usual gap, buys in 12 months | `Lines` under `recorded` receipts, plus `Log` `bought` |
 | Last paid | newest purchase line for the product |
 | Stock word | newest observation, purchases since, usual gap (`stats.py`). What was said is believed for 30 days or two usual gaps, whichever is longer; after that "plenty" is dropped and "out" or "low" becomes `check` |
+| Spent on a trip | `Receipts.total` when printed, else the trip's lines added up, which leaves out tax (`query.py`, the `trips` view) |
 | Confirmed deal | `Offers`: promotion, warehouse scope, on the shelf, not ended (`brief.py`) |
 | Worth showing | `Products.kind`, the item link, purchase history (`brief.relevant`) |

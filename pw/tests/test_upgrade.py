@@ -1,4 +1,4 @@
-"""Bringing a 2.0 sheet up to this pw in place."""
+"""Bringing a 2.0 or 2.1 sheet up to this pw in place."""
 
 import unittest
 
@@ -19,15 +19,46 @@ def sheet_on_2_0():
     for r in be.tabs["Config"]:
         if r[0] == "schema_version":
             r[1] = "2.0"
-    be.tabs["Receipts"] = [r[:-1] for r in be.tabs["Receipts"]]
+    be.tabs["Receipts"] = [r[:-3] for r in be.tabs["Receipts"]]
     assert "account" not in be.tabs["Receipts"][0]
+    del be.tabs["PriceHistory"]
     be.tabs["Sync"] = [OLD_SYNC, ["costco", "active", "663 Example City", "abc", "grok-bot",
                                   "2026-11-12T20:00:00-08:00", "2023-09-26", "2026-10-13",
                                   "2026-11-11T08:20:00-08:00", "No new receipts."]]
     return be
 
 
+def sheet_on_2_1():
+    """A household as pw 2.1.0 left it: accounts, but no tax or savings and no price history."""
+    be = household()
+    receipt(be, "costco", "2026-10-13", [{"sku": "1025795", "text": "KS 5DZ EGGS"}], rid="B1")
+    costco_bridge.lease(book(be), "costco", "grok-bot", location="663 Example City")
+    for r in be.tabs["Config"]:
+        if r[0] == "schema_version":
+            r[1] = "2.1"
+    be.tabs["Receipts"] = [r[:-2] for r in be.tabs["Receipts"]]
+    assert be.tabs["Receipts"][0][-1] == "account"
+    del be.tabs["PriceHistory"]
+    return be
+
+
 class UpgradeTests(unittest.TestCase):
+    def test_a_2_1_sheet_gains_the_new_columns_and_tab_and_keeps_its_accounts(self):
+        be = sheet_on_2_1()
+        with self.assertRaises(PwError) as err:
+            say(be, [{"op": "add", "item": "eggs"}])
+        self.assertIn("pw upgrade", str(err.exception))
+        sync = [list(r) for r in be.tabs["Sync"]]
+        report = migrate.upgrade(be)
+        self.assertEqual((report["was"], report["schema"]), ("2.1", SCHEMA_VERSION))
+        self.assertEqual(report["changed"], ["Receipts: + tax, savings", "PriceHistory: + " + ", ".join(
+            TABS["PriceHistory"].columns)])
+        self.assertEqual(be.tabs["Sync"], sync)
+        self.assertEqual(be.tabs["PriceHistory"], [list(TABS["PriceHistory"].columns)])
+        self.assertEqual(doctor(book(be)), [])
+        self.assertEqual(rows(be, "Receipts")[0]["receipt"], "costco:B1")
+        self.assertEqual(costco_bridge.snapshot(book(be), "costco")["receipts_missing_totals"], ["B1"])
+
     def test_an_older_sheet_is_refused_until_it_is_upgraded(self):
         be = sheet_on_2_0()
         with self.assertRaises(PwError) as err:

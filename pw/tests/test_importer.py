@@ -14,7 +14,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from helpers import book, household, receipt, rows, say
-from pantry_wizard import brief, costco_bridge, stats
+from pantry_wizard import brief, costco_bridge, stats, query
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "integrations", "costco", "src"))
 try:
@@ -224,3 +224,36 @@ class ImporterTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipIf(import_windows is None, "costco-sync is not importable")
+class TotalsAndPriceHistoryTests(ImporterTests):
+    def test_printed_totals_arrive_with_a_receipt_and_later_for_receipts_already_here(self):
+        # B1013 reached the sheet before totals were kept. The importer still
+        # has the copy it downloaded then.
+        receipt(self.be, "costco", "2026-10-13", [{"sku": "1025795", "text": "KS 5DZ EGGS", "unit_price": "12.99",
+                                                  "ref": "costco:wh:B1013:1025795"}], rid="B1013")
+        self.costco.receipts = {
+            "B1013": dict(RECEIPTS["B1013"], total=38.91, taxes=3.54, instantSavings=0),
+            "B1027": dict(RECEIPTS["B1027"], total=65.92, taxes=5.44, instantSavings=4.0),
+        }
+        report = self.sync(MORNING)
+        self.assertEqual((report["receipts"], report["totals_filled"]), (1, 1))
+        got = {r["receipt"]: (r["total"], r["tax"], r["savings"]) for r in rows(self.be, "Receipts")}
+        self.assertEqual(got, {"costco:B1013": ("38.91", "3.54", "0.00"), "costco:B1027": ("65.92", "5.44", "4.00")})
+        self.assertEqual(costco_bridge.snapshot(book(self.be, MORNING), "costco")["receipts_missing_totals"], [])
+        spent = query.show(book(self.be, MORNING), "trips", store="costco")["totals"]
+        self.assertEqual(spent, {"trips": 2, "spent": 104.83, "tax": 8.98, "savings": 4.0, "trips_before_tax": 0})
+
+    def test_a_price_change_is_kept_and_a_quiet_recheck_is_not(self):
+        self.sync(MORNING)
+        first = [(h["product"], h["price"], h["sale"]) for h in rows(self.be, "PriceHistory")]
+        self.assertEqual(sorted(first), [("costco:1025795", "9.99", ""), ("costco:500", "9.99", "")])
+        self.sync(MORNING + timedelta(days=1), trip=True)       # asked again, nothing moved
+        self.assertEqual(len(rows(self.be, "PriceHistory")), 2)
+        self.costco.sale = {"500": "7.99"}
+        self.sync(MORNING + timedelta(days=2), trip=True)
+        history = query.show(book(self.be, MORNING + timedelta(days=2)), "price_history", text="SPINDRIFT")
+        self.assertEqual(history["totals"], {"changes": 2, "lowest": 7.99, "highest": 9.99, "since": "2026-11-11"})
+        self.assertEqual([(r["date"], r["price"], r.get("on_sale", "")) for r in history["rows"]],
+                         [("2026-11-13", 7.99, "yes"), ("2026-11-11", 9.99, "")])

@@ -15,9 +15,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-SCHEMA_VERSION = "2.1"
+SCHEMA_VERSION = "2.2"
 # Layouts `pw upgrade` can bring up to SCHEMA_VERSION in place.
-UPGRADABLE = ("2.0",)
+UPGRADABLE = ("2.0", "2.1")
 
 
 @dataclass(frozen=True)
@@ -94,6 +94,9 @@ TABS: dict[str, Tab] = {
             (
                 "receipt", "store", "date", "total", "lines", "source",
                 "status", "superseded_by", "by", "agent", "at", "account",
+                # As printed: `total` includes `tax`; `savings` is the store's
+                # discounts on the trip, already taken off the line prices.
+                "tax", "savings",
             ),
             "importer",
         ),
@@ -103,6 +106,13 @@ TABS: dict[str, Tab] = {
                 "line", "receipt", "n", "product", "item", "text", "qty",
                 "unit_price", "kind", "ref",
             ),
+            "importer",
+        ),
+        # One row each time a product's price or sale changes, so "is this a
+        # good price" has something to compare against. Append-only.
+        Tab(
+            "PriceHistory",
+            ("id", "product", "at", "price", "regular_price", "sale", "sale_ends"),
             "importer",
         ),
         Tab(

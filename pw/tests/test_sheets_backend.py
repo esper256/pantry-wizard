@@ -13,7 +13,7 @@ import unittest
 from helpers import NOW
 from pantry_wizard import migrate, ops
 from pantry_wizard.backend import SheetsBackend
-from pantry_wizard.schema import TABS
+from pantry_wizard.schema import SCHEMA_VERSION, TABS
 from pantry_wizard.store import PwError, Workbook
 
 RANGE = re.compile(r"^'(?P<tab>[^']+)'(!(?P<col>[A-Z]+)(?P<row>\d+)?(:(?P<end>[A-Z]+))?)?$")
@@ -152,7 +152,7 @@ class SheetsBackendTests(unittest.TestCase):
     def test_init_adds_every_tab_with_its_headers(self):
         for name, tab in TABS.items():
             self.assertEqual(self.api.grids[name][0], list(tab.columns))
-        self.assertEqual(self.api.grids["Config"][1][:2], ["schema_version", "2.1"])
+        self.assertEqual(self.api.grids["Config"][1][:2], ["schema_version", SCHEMA_VERSION])
 
     def test_a_message_is_one_batch_read_then_appends_and_one_cell_update(self):
         ops.apply(self.book(), [{"op": "new_item", "name": "Eggs", "new_source": True},
@@ -209,14 +209,19 @@ class SheetsBackendTests(unittest.TestCase):
         grids["Config"][1][1] = "2.0"
         for line in grids["Receipts"]:
             del line[11:]                                      # as 2.0 left it
+        del grids["PriceHistory"]
         grids["Sync"] = [["store", "status", "location", "membership_fingerprint", "owner", "lease_until",
                           "history_from", "history_through", "last_sync_at", "last_summary"],
                          ["costco", "active", "663 Example City", "abc", "grok-bot"]]
         report = migrate.upgrade(self.be)
-        self.assertEqual(report["changed"], ["Receipts: + account", "Sync: + sync, account, prices"])
-        self.assertEqual(grids["Receipts"][0][-2:], ["at", "account"])
+        self.assertEqual(report["changed"], [
+            "Receipts: + account, tax, savings",
+            "PriceHistory: + id, product, at, price, regular_price, sale, sale_ends",
+            "Sync: + sync, account, prices"])
+        self.assertEqual(grids["Receipts"][0][-4:], ["at", "account", "tax", "savings"])
+        self.assertEqual(grids["PriceHistory"], [list(TABS["PriceHistory"].columns)])
         self.assertEqual(grids["Sync"][1][:4], ["costco:primary", "costco", "primary", "yes"])
-        self.assertEqual(grids["Config"][1][:2], ["schema_version", "2.1"])
+        self.assertEqual(grids["Config"][1][:2], ["schema_version", SCHEMA_VERSION])
         self.assertEqual(Workbook(self.be, now=NOW).t("Receipts").rows[0]["receipt"], "costco:B1")
 
     def test_replacing_a_tab_with_fewer_rows_leaves_nothing_behind(self):

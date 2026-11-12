@@ -15,6 +15,7 @@ cd pw && PYTHONPATH=src:tests python -m unittest discover -s tests    # no netwo
 | `ops.py` | the operations agents send, and the merged list |
 | `receipts.py` | receipt ingest, auto-close, photo and official copies of one trip |
 | `stats.py` | purchases per item, buying rhythm, the stock word |
+| `query.py` | the history reads (`pw purchases`, `trips`, `requests`, `said`, `prices`), `pw sql` and `pw schema`: the workbook as an in-memory SQLite database, with views |
 | `brief.py` | trip brief, the confirmed-deal rule, relevance, change detection, trip refresh tier |
 | `costco_bridge.py` | snapshot for the importer, applying its mutation file, the lease |
 | `migrate.py` | empty workbook, schema 0.3 to 2.x, and `pw upgrade` between 2.x layouts |
@@ -27,6 +28,9 @@ pw --file /tmp/book.json init --timezone America/Los_Angeles
 pw --file /tmp/book.json apply --by alex '[{"op": "new_item", "name": "Milk", "new_source": true}, {"op": "add", "item": "milk"}]'
 pw --file /tmp/book.json list
 pw --file /tmp/book.json brief costco
+pw --file /tmp/book.json requests --days 7
+pw --file /tmp/book.json schema
+pw --file /tmp/book.json sql "SELECT name, status FROM requests"
 ```
 
 ## What is and is not tested

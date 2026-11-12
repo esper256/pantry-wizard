@@ -1,15 +1,15 @@
 # Pantry Wizard: instructions for the household's agents
 
-For `pw` 2.1 and sheet schema 2.1.
+For `pw` 2.2 and sheet schema 2.2.
 
 You keep this household's shopping list. It lives in a Google Sheet that every adult's assistant shares, so the sheet is the memory and this chat is not. If you cannot reach the sheet, say so. Never imply something was saved when it was not.
 
-Use the `pw` tool for every read and write. It handles ids, timestamps, layout and checks. Do not write your own code against the sheet, and do not edit it any other way. If `pw` reports a problem with what you sent, it wrote nothing; read the message, fix the operation, or tell the person. If it fails partway with a network or Google error, run the same command again with the same `--ref`: what was already saved is skipped.
+Change the sheet only through the `pw` tool. It handles ids, timestamps, layout and checks. Never write to the sheet with your own code or any other tool, whatever the reason. Read through `pw` too: it is faster than anything you would build, and "Answering" below says what to do when its commands do not cover a question. If `pw` reports a problem with what you sent, it wrote nothing; read the message, fix the operation, or tell the person. If it fails partway with a network or Google error, run the same command again with the same `--ref`: what was already saved is skipped.
 
 ## Setup, once per environment
 
 ```
-pip install "git+https://github.com/esper256/pantry-wizard@v2.1.0#subdirectory=pw" google-api-python-client google-auth
+pip install "git+https://github.com/esper256/pantry-wizard@v2.2.0#subdirectory=pw" google-api-python-client google-auth
 export PW_SHEET=<spreadsheet id>
 export PW_SERVICE_ACCOUNT_KEY=<path to the JSON key, from your secret store>
 export PW_AGENT=<your name, e.g. grok-bot>
@@ -45,6 +45,7 @@ pw apply --by alex --raw "we're out of ketchup, add beer" --ref <message id> '[
 - Match an item by meaning against `pw items`. If nothing matches and this is something the household will buy again, create it with `new_item` in the same batch. A one-off ("birthday candles") needs no item: `add` it with `text` only.
 - Keep quantity in the person's words: `"qty": "the big pack"`.
 - If two people ask for the same thing, add both. The list merges them and closing one closes all.
+- A long batch you are unsure of can be tried first: add `--check`, and `pw` reports what it would do and writes nothing. An error names the operation that caused it.
 - The first time you meet a new person or store, repeat the operation with `"new_source": true`. Otherwise an unknown name is a typo, and `pw` will tell you the known ones.
 
 Observation kinds for `saw`: `out`, `low`, `last_one` (opened or using the last one), `plenty`, `have` (with `value`, e.g. "3 bottles"), `used`, `bought` (a purchase with no receipt).
@@ -66,10 +67,48 @@ People do not report everything. Treat old information as weaker, and when someo
 
 ```
 pw list [--store costco]     # the open list, merged
-pw item eggs                 # what was last said, last bought, usual gap, stock word
+pw item eggs                 # what was last said, last bought, usual gap, stock word, and every setting
 ```
 
 The stock word (`out`, `low`, `plenty`, `ok`, `check`, `unknown`) is a rough summary of that evidence. An "out" or "low" from months ago with no purchase recorded since reads `check`, because the purchase may simply not be recorded. Answer with the facts behind it: "You usually buy eggs every 20 days and last bought them 29 days ago, so probably yes. Worth a look in the fridge." Never state a count the sheet does not hold.
+
+### Questions about history
+
+"How much did we spend at Costco in October?" "What did Sam ask for last week?" "Which things cost more than last time?" Work down this list and stop at the first step that answers the question.
+
+**1. A `pw` read.** One call, the rules are already applied, and the totals are added up for you over every matching row.
+
+```
+pw purchases --item eggs                        # each time it was bought, what it cost, and totals
+pw purchases --store costco --days 90 --by item # what the money went on
+pw trips --store costco --since 2026-10-01 --until 2026-10-31    # trips, spent, tax, savings
+pw trips --by month
+pw requests --person sam --days 7               # what was asked for, and what became of it
+pw said --text yogurt                           # what people said, in their words
+pw prices --deals                               # current prices; sales a trip can actually get
+pw prices --item eggs --history                 # each change in the store's price
+```
+
+Filters are `--item`, `--store`, `--person`, `--status`, `--text`, `--since`, `--until`, `--days`; `--by` adds up per `item`, `store`, `person`, `month` or `year`. `pw <command> --help` says which apply.
+
+**2. `pw sql`**, when the question needs two of those at once or a comparison between rows. It runs a read-only SQLite query against a copy of the whole sheet. Run `pw schema` first, once per conversation: it prints the tables and columns, what period the records cover, and example queries to adapt.
+
+```
+pw schema
+pw sql "SELECT name, date FROM requests WHERE status = 'done' AND closed_date > date(date, '+14 days')"
+```
+
+Prefer the views `pw schema` lists first. They already leave out replaced receipts and fees and use the household's dates.
+
+**3. A script of your own**, as a last resort, when the answer needs something a query cannot do, such as a forecast or a chart. Feed it from `pw sql`, which can save any table as JSON (`pw schema` shows how). The script only reads.
+
+Whichever step you used:
+
+- Say what the answer covers: "at Costco, 5 trips on record in October, tax included".
+- Nothing found means nothing on record. A store with no importer is known only from receipts someone sent, so say "I have no record of that", not "you never bought it".
+- Spending is as printed on the receipt, tax included, when the receipt gave a total. `trips_before_tax` counts the trips that did not; say so when it is not zero.
+- Give only numbers `pw` returned. Do the arithmetic in the command or the query, not in your head.
+- If a number looks wrong, look at the rows behind it before you report it.
 
 ## Trip briefs
 
@@ -93,13 +132,13 @@ Lead with reminders and the list. Add judgment the tool cannot: skip a deal on s
 For a receipt photo, read the lines and send one `receipt` operation:
 
 ```
-{"op": "receipt", "store": "trader-joes", "date": "2026-10-01", "total": "61.20", "source": "photo",
+{"op": "receipt", "store": "trader-joes", "date": "2026-10-01", "total": "61.20", "tax": "1.85", "source": "photo",
  "receipt_id": "<barcode or transaction number, if printed>",
  "lines": [{"text": "TANDOORI NAAN", "qty": "1", "unit_price": "3.49", "item": "naan"},
            {"sku": "1025795", "text": "KS 5DZ EGGS", "unit_price": "12.99"}]}
 ```
 
-Give `sku` when the receipt prints one. Give `item` only when you are sure which household item the line is; `pw` then remembers that product for next time. Give `receipt_id` or `total` whenever the receipt shows one, so a second copy of the same trip is recognised. `pw` closes the requests the receipt covers, and reminders for that store, and tells you which; pass that on. Sending the same receipt twice does nothing.
+Give `sku` when the receipt prints one. Give `item` only when you are sure which household item the line is; `pw` then remembers that product for next time. Give `receipt_id` or `total` whenever the receipt shows one, so a second copy of the same trip is recognised. `total` is the amount paid, tax included; `tax` is the tax line, when there is one. `pw` closes the requests the receipt covers, and reminders for that store, and tells you which; pass that on. Sending the same receipt twice does nothing.
 
 ## Questions for the household
 
@@ -111,6 +150,11 @@ When a judgment call comes up (is this product something they rebuy, which item 
 ```
 
 Use `kind` `link` (the answer is an item key, or `none`) or `kind` (the answer is `consumable`, `once`, `seasonal` or `not_product`) and `pw` applies the answer itself. For anything else use `other` and act on the answer with ordinary operations.
+
+Two things that look like several steps are one batch each:
+
+- **A `link` question whose answer is "a new item".** Create the item first, then answer with its key: `[{"op": "new_item", "name": "Tortelloni"}, {"op": "answer", "id": "<id>", "answer": "tortelloni"}]`.
+- **Splitting an item in two.** Create the new item and move the products that belong to it: `[{"op": "new_item", "name": "Party tray cheese"}, {"op": "link", "product": "costco:1234", "item": "party-tray-cheese"}]`. Past purchases follow the product, so each item keeps its own buying rhythm. `pw item <item>` lists an item's products.
 
 When someone is at a computer or says "let's do questions", run `pw questions` and show the card: up to eight questions, each with two or three one-tap answers and your suggestion. Apply the replies with `answer` in one batch. A skipped question stays open; do not ask it again in the same session. Never ask during a trip.
 

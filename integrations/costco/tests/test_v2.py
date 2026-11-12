@@ -252,3 +252,61 @@ def test_another_accounts_receipts_do_not_make_this_accounts_history_look_done()
     assert len(history_windows(dict(snapshot, history_per_account=True), TODAY)) > 1
     snapshot["integrations"][0]["history_through"] = "2026-11-01"
     assert history_windows(dict(snapshot, history_per_account=True), TODAY) == [(date(2026, 11, 1), TODAY)]
+
+
+def _printed(barcode: str, **printed) -> dict:
+    return {
+        "transactionBarcode": barcode, "warehouseNumber": "663", "warehouseName": "Example City",
+        "transactionDate": "2026-11-10",
+        "itemArray": [{"itemNumber": "100", "itemDescription01": "ITEM 100", "amount": 5.0, "unit": 1}],
+        **printed,
+    }
+
+
+def test_a_new_receipt_carries_what_it_printed_below_the_lines(tmp_path):
+    source = _Source({"B1": _printed("B1", total=5.46, taxes=0.46, instantSavings=2.0), "B2": _printed("B2")})
+    receipts = _import(tmp_path, _snapshot([]), source)["receipts"]
+    assert [(r["barcode"], r["total"], r["tax"], r["instant_savings"]) for r in receipts] == [
+        ("B1", "5.46", "0.46", "2.00"), ("B2", "", "", "")]
+
+
+def test_totals_for_older_receipts_come_from_the_saved_copy_then_a_few_downloads(tmp_path, monkeypatch):
+    import costco_sync.run as run
+
+    monkeypatch.setattr(run, "TOTALS_FETCH_PER_RUN", 1)
+    store = StateStore(tmp_path / "state.db")
+    store.put_receipt("OLD1", _printed("OLD1", total=10.0, taxes=1.0))
+    store.put_receipt("OLD2", _printed("OLD2"))  # saved, but Costco printed no total
+    store.close()
+
+    class Source(_Source):
+        fetched: list[str] = []
+
+        def get_receipt_detail(self, barcode: str) -> dict:
+            self.fetched.append(barcode)
+            return _printed(barcode, total=20.0, taxes=2.0, instantSavings=3.0)
+
+    source = Source()
+    source.receipts = {}
+    snapshot = _snapshot([], receipts_missing_totals=["OLD1", "OLD2", "OLD3", "OLD4"])
+    mutations = _import(tmp_path, snapshot, source)
+    assert mutations["receipt_totals"] == [
+        {"barcode": "OLD1", "total": "10.00", "tax": "1.00", "instant_savings": ""},
+        {"barcode": "OLD3", "total": "20.00", "tax": "2.00", "instant_savings": "3.00"},
+    ]
+    assert source.fetched == ["OLD3"]
+    # OLD3 is saved now, so the next run answers it without Costco and moves on to OLD4.
+    assert [t["barcode"] for t in _import(tmp_path, snapshot, source)["receipt_totals"]] == ["OLD1", "OLD3", "OLD4"]
+
+
+def test_a_failed_totals_download_does_not_fail_the_import(tmp_path):
+    class Source(_Source):
+        def get_receipt_detail(self, barcode: str) -> dict:
+            if barcode.startswith("OLD"):
+                raise RuntimeError("Costco said no")
+            return super().get_receipt_detail(barcode)
+
+    source = Source({"B1": _printed("B1", total=5.46)})
+    mutations = _import(tmp_path, _snapshot([], receipts_missing_totals=["OLD1", "OLD2"]), source)
+    assert mutations["receipt_totals"] == []
+    assert [r["barcode"] for r in mutations["receipts"]] == ["B1"]

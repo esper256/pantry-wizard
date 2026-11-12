@@ -1,6 +1,6 @@
 """The `pw` command.
 
-Reads print JSON, except `brief`, which prints text ready to send. Writes go
+Reads print JSON, except `brief` and `schema`, which print text. Writes go
 through `pw apply`, which takes the operations for one chat message as a JSON
 array. A problem the agent can fix is printed to stderr with exit code 1 and
 nothing is written.
@@ -15,7 +15,7 @@ import sys
 import time
 
 from . import brief as brief_mod
-from . import costco_bridge, migrate as migrate_mod, ops, stats
+from . import costco_bridge, migrate as migrate_mod, ops, query, stats
 from .backend import FileBackend, SheetsBackend
 from .schema import SCHEMA_VERSION, TABS, UPGRADABLE
 from .store import PwError, Workbook
@@ -25,6 +25,32 @@ from .store import PwError, Workbook
 # wrote. Each speaks its importer's own file format. The lease is the same
 # for every store.
 BRIDGES = {"costco": costco_bridge}
+
+
+_DATES = ("since", "until", "days")
+SHOWS = {
+    "purchases": ("what was bought: filter by item, store, words or dates; totals included",
+                  ("item", "store", "text", *_DATES, "by")),
+    "trips": ("shopping trips with what was spent, tax and savings", ("store", *_DATES, "by")),
+    "requests": ("everything put on the list, open or closed", ("item", "store", "person", "status", "text",
+                                                               *_DATES, "by")),
+    "said": ("what people told an agent, in their words", ("item", "person", "text", *_DATES, "by")),
+    "prices": ("current prices and sales per product, or their history", ("item", "store", "text", "deals",
+                                                                         "history", *_DATES)),
+}
+SHOW_FLAGS = {
+    "item": {"help": "an item key or name"},
+    "store": {"help": "a store"},
+    "person": {"help": "who asked or said it"},
+    "status": {"choices": ["open", "done", "cancelled", "expired"]},
+    "text": {"help": "words to look for in names and in what was said"},
+    "since": {"help": "first date, like 2026-10-01"},
+    "until": {"help": "last date, like 2026-10-31"},
+    "days": {"type": int, "help": "the last N days, instead of --since"},
+    "by": {"help": "add up per item, store, person, month or year, where that applies"},
+    "deals": {"action": "store_true", "help": "only sales a trip can actually get"},
+    "history": {"action": "store_true", "help": "every price change on record, not the current price"},
+}
 
 
 def _backend(args):
@@ -112,12 +138,17 @@ def run(args) -> None:
     elif cmd == "list":
         _out(ops.open_list(wb, args.store or ""))
     elif cmd == "apply":
-        _out(ops.apply(wb, _read_json(args.ops), by=args.by or "", raw=args.raw or "", ref=args.ref or ""))
+        done = ops.apply(wb, _read_json(args.ops), by=args.by or "", raw=args.raw or "", ref=args.ref or "",
+                         check=args.check)
+        _out({"checked": done, "written": False} if args.check else done)
     elif cmd == "item":
         wb.load("Config")
         st = stats.item_stats(wb, wb.now().date()).get(args.item)
         if st is None:
             raise PwError(f"No item {args.item!r}")
+        row = wb.t("Items").get(args.item)
+        st.update({k: row[k] for k in ("aliases", "kind", "stores", "only_at", "rule", "max_price", "keep", "note")})
+        st["products"] = [p["product"] for p in wb.t("Products").where(item=args.item)]
         st["recent"] = [
             {"at": r["at"][:10], "by": r["by"], "kind": r["kind"], "raw": r["raw"] or r["value"]}
             for r in wb.t("Log").rows if r["item"] == args.item][-5:]
@@ -138,6 +169,16 @@ def run(args) -> None:
         _out(brief_mod.trip_tier(wb, args.store))
     elif cmd == "questions":
         _out(ops.open_questions(wb, args.next))
+    elif cmd in SHOWS:
+        view = "price_history" if cmd == "prices" and args.history else cmd
+        asked = {k: getattr(args, k) for k in ("item", "store", "person", "text", "status", "since", "until",
+                                                "days", "deals", "by") if getattr(args, k, None)}
+        _out(query.show(wb, view, limit=args.limit, **asked))
+    elif cmd == "sql":
+        queries = [sys.stdin.read()] if args.query == ["-"] else args.query
+        print(json.dumps(query.run(wb, queries, args.limit), ensure_ascii=False, default=str))
+    elif cmd == "schema":
+        print(query.schema(wb), end="")
     elif cmd == "rebuild":
         wb.load("Config")
         wb.load("v_Items")
@@ -203,6 +244,7 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("--by", help="who said it")
     s.add_argument("--raw", help="their words")
     s.add_argument("--ref", help="chat message id; makes a retry harmless")
+    s.add_argument("--check", action="store_true", help="validate and report the batch; write nothing")
     s = sub.add_parser("item", help="what is known about one item")
     s.add_argument("item")
     s = sub.add_parser("brief", help="trip brief for a store, from current data")
@@ -213,6 +255,15 @@ def parser() -> argparse.ArgumentParser:
     s.add_argument("store")
     s = sub.add_parser("questions", help="the next card of banked questions")
     s.add_argument("--next", type=int, default=8)
+    for name, (about, flags) in SHOWS.items():
+        s = sub.add_parser(name, help=about)
+        for flag in flags:
+            s.add_argument(f"--{flag}", **SHOW_FLAGS[flag])
+        s.add_argument("--limit", type=int, default=50, help="most rows to print; totals cover every match")
+    s = sub.add_parser("sql", help="answer a question with a read-only SQL query; see `pw schema`")
+    s.add_argument("query", nargs="+", help="one SELECT per argument, or - for stdin")
+    s.add_argument("--limit", type=int, default=query.ROW_LIMIT, help="most rows to print per query")
+    sub.add_parser("schema", help="tables, columns, what is on record, and example queries for `pw sql`")
     sub.add_parser("rebuild", help="rewrite the v_Items tab")
     s = sub.add_parser("sync", help="exchange data with a store importer")
     s.add_argument("action", choices=["snapshot", "apply", "lease"])

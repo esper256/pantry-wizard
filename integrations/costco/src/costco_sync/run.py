@@ -18,7 +18,7 @@ from costco_sync.cadence import (
 )
 from costco_sync.decide import build_mutations, snapshot_from_json, warehouse_number
 from costco_sync.models import PriceLookupResult, RangeRejected, Receipt
-from costco_sync.normalize import barcodes_from_list, membership_number, parse_receipt_detail
+from costco_sync.normalize import barcodes_from_list, membership_number, parse_receipt_detail, receipt_totals
 from costco_sync.setupflow import (
     PRICE_LOOKUP_FAILURE,
     assert_lease,
@@ -40,6 +40,8 @@ WAREHOUSE_LOOKBACK_DAYS = 180
 LATE_RECEIPT_LOOKBACK_DAYS = 45
 LATE_RECEIPT_EVERY_DAYS = 7
 LAST_LONG_LOOKBACK = "last_long_lookback"
+# Older receipts downloaded again per run to learn their printed totals.
+TOTALS_FETCH_PER_RUN = 20
 
 
 def _local_date(now: datetime, timezone_name: str) -> date:
@@ -108,6 +110,33 @@ def collect_window(source, store: StateStore, start: date, end: date) -> tuple[l
             fingerprints.add(membership_fingerprint(number))
         receipts.append(parse_receipt_detail(payload))
     return receipts, fingerprints
+
+
+def backfill_totals(source, store: StateStore, barcodes: list[str]) -> list[dict]:
+    """Printed totals for receipts the sheet holds without one.
+
+    Receipts imported before totals were kept have none. The copy saved when
+    each was first downloaded usually answers. A few per run are downloaded
+    again when it does not. A failure here never fails the import.
+    """
+    out: list[dict] = []
+    fetches = TOTALS_FETCH_PER_RUN
+    for barcode in barcodes:
+        payload = store.get_receipt(barcode)
+        if payload is None:
+            if fetches <= 0:
+                continue
+            fetches -= 1
+            try:
+                payload = source.get_receipt_detail(barcode)
+            except Exception:
+                fetches = 0
+                continue
+            store.put_receipt(barcode, payload)
+        totals = receipt_totals(parse_receipt_detail(payload))
+        if totals["total"]:
+            out.append({"barcode": barcode, **totals})
+    return out
 
 
 def list_warehouses(source, store: StateStore, start: date, end: date) -> list[tuple[str, str, int]]:
@@ -254,6 +283,7 @@ def import_windows(
     # last checked even when it did not change.
     answered = checked if result is not None and result.ok else []
     priced = {quote.item_number for quote in result.quotes if quote.current_price is not None} if answered else set()
+    mutations["receipt_totals"] = backfill_totals(source, store, snapshot.receipts_missing_totals)
     mutations["checked_item_numbers"] = sorted(sku for sku in answered if sku in priced)
     mutations["missed_item_numbers"] = sorted(sku for sku in answered if sku not in priced)
     summary = build_summary(

@@ -2,7 +2,7 @@ import unittest
 from datetime import timedelta
 
 from helpers import NOW, book, household, rows, say
-from pantry_wizard import ops
+from pantry_wizard import ops, query
 from pantry_wizard.store import PwError
 
 
@@ -124,6 +124,43 @@ class ItemTests(unittest.TestCase):
         # asking the same thing again while it is open does nothing
         again = say(be, [{"op": "ask", "kind": "kind", "subject": "costco:105", "question": "?"}])
         self.assertEqual(again[0]["skipped"], "already asked")
+
+    def test_a_yes_to_a_new_item_question_is_one_batch(self):
+        be = household()
+        say(be, [{"op": "receipt", "store": "costco", "date": "2026-11-01", "source": "import", "receipt_id": "R1",
+                  "lines": [{"sku": "777", "text": "KS TORTELLONI", "unit_price": "12"}]}])
+        asked = say(be, [{"op": "ask", "kind": "link", "subject": "costco:777",
+                          "question": "Track tortelloni as its own item?"}])[0]["question"]
+        # Create the item first; the answer then links the product to it.
+        done = say(be, [{"op": "new_item", "name": "Tortelloni", "rule": "when_in_stock", "stores": "costco"},
+                        {"op": "answer", "id": asked, "answer": "tortelloni"}], by="sam")
+        self.assertEqual(done[0]["saved"], {"name": "Tortelloni", "rule": "when_in_stock", "stores": "costco"})
+        product = [p for p in rows(be, "Products") if p["product"] == "costco:777"][0]
+        self.assertEqual(product["item"], "tortelloni")
+        self.assertEqual(ops.open_questions(book(be)), [])
+
+    def test_splitting_an_item_is_one_batch_and_its_purchases_follow_the_products(self):
+        be = household()
+        say(be, [{"op": "new_item", "name": "Sliced cheese"}])
+        for day, sku in (("2026-10-01", "1"), ("2026-10-08", "2"), ("2026-10-15", "2")):
+            say(be, [{"op": "receipt", "store": "costco", "date": day, "source": "import", "receipt_id": day,
+                      "lines": [{"sku": sku, "text": f"CHEESE {sku}", "item": "sliced-cheese", "unit_price": "9"}]}])
+        say(be, [{"op": "new_item", "name": "Party tray cheese"},
+                 {"op": "link", "product": "costco:2", "item": "party-tray-cheese"}], by="sam")
+        got = query.show(book(be), "purchases", by="item")["rows"]
+        self.assertEqual([(r["item"], r["purchases"]) for r in got], [("Party tray cheese", 2), ("Sliced cheese", 1)])
+
+    def test_check_validates_and_writes_nothing_and_an_error_names_the_operation(self):
+        be = household()
+        before = {t: [list(r) for r in v] for t, v in be.tabs.items()}
+        batch = [{"op": "add", "item": "eggs"}, {"op": "new_item", "name": "Yogurt"}, {"op": "add", "item": "yogurt"}]
+        got = ops.apply(book(be), batch, by="alex", check=True)
+        self.assertEqual([r["op"] for r in got], ["add", "new_item", "add"])
+        self.assertEqual(be.tabs, before)
+        with self.assertRaises(PwError) as e:
+            ops.apply(book(be), batch[:1] + [{"op": "add", "item": "yoghurt"}], by="alex", check=True)
+        self.assertIn("Operation 2 of 2 (add): No item 'yoghurt'", str(e.exception))
+        self.assertEqual(be.tabs, before)
 
 
 if __name__ == "__main__":

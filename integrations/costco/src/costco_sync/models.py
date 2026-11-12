@@ -69,6 +69,8 @@ class Snapshot:
     # True when known_source_refs may hold another account's receipts, so only
     # this account's own row says whether it has downloaded its history.
     history_per_account: bool = False
+    # Receipts already in the sheet that have no printed total yet.
+    receipts_missing_totals: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -98,6 +100,10 @@ class Receipt:
     warehouse_name: str
     occurred_on: str
     lines: list[NormalizedLine]
+    # As printed on the receipt. None when Costco did not say.
+    total: Decimal | None = None
+    tax: Decimal | None = None
+    instant_savings: Decimal | None = None
 
 
 @dataclass
