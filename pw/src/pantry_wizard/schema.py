@@ -15,9 +15,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-SCHEMA_VERSION = "2.3"
-# Layouts `pw upgrade` can bring up to SCHEMA_VERSION in place.
-UPGRADABLE = ("2.0", "2.1", "2.2")
+SCHEMA_VERSION = "2.4"
+# Layouts `pw upgrade` can bring up to SCHEMA_VERSION in place. `pw upgrade`
+# diffs against the current layout, so it jumps straight from any of these to
+# SCHEMA_VERSION; never drop one, or a sheet stuck on it could not move.
+UPGRADABLE = ("2.0", "2.1", "2.2", "2.3")
 
 
 @dataclass(frozen=True)
@@ -73,6 +75,12 @@ TABS: dict[str, Tab] = {
             ),
             "declared",
         ),
+        # Service accounts that may reach this sheet, one row per agent. The
+        # household fills `key` with the account's JSON only to bootstrap a bot
+        # that cannot be handed a secret; `pw` reads it once and caches it. The
+        # account is scoped to nothing but this sheet, so the key is low value
+        # by design. `pw` never prints it and keeps this tab out of `pw sql`.
+        Tab("Accounts", ("account", "email", "key", "note"), "declared"),
         # Standing facts about the household that are not tied to one item:
         # "Sam is vegetarian", "we are cutting back on sugar". Agents read them
         # to interpret what is said; they are never a request or an observation.

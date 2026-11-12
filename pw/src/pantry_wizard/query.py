@@ -25,7 +25,10 @@ from .schema import TABS
 ROW_LIMIT = 200
 
 # Derived tabs are copies that may be stale. `stock` is the same thing, fresh.
-RAW_TABS = tuple(name for name, tab in TABS.items() if tab.owner != "derived")
+# Everything but the derived views, and never Accounts: its `key` column holds
+# a credential that must not reach an ad-hoc query.
+SECRET_TABS = ("Accounts",)
+RAW_TABS = tuple(name for name, tab in TABS.items() if tab.owner != "derived" and name not in SECRET_TABS)
 
 # Cells arrive as text. These columns become numbers so SUM and < work; an
 # empty cell in one of them is NULL. Every other empty cell is ''.

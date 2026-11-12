@@ -52,11 +52,11 @@ The migration reads the old workbook and writes a new one. The old sheet is neve
 - **Other standing rules.** Only "only if on sale" and "whenever in stock" are recognised in policy text. Set anything else, such as `only_at` or `max_price`, with `set_item` after the migration; the original text is in `keep`.
 - **`checked_at`.** The old sheet only stamped a row when its value changed, so migrated `checked_at` values can be older than the truth. The first sync fixes this.
 
-## From 2.0, 2.1 or 2.2 to 2.3
+## From 2.0, 2.1, 2.2 or 2.3 to 2.4
 
-A sheet made by `pw` 2.0, 2.1 or 2.2 is upgraded where it is. Nothing moves to a new sheet.
+A sheet made by `pw` 2.0, 2.1, 2.2 or 2.3 is upgraded where it is. Nothing moves to a new sheet. `pw upgrade` adds whatever the current layout is missing, so it reaches 2.4 in a single run from any of these — you never have to stop at an intermediate version.
 
-1. Install `pw` 2.3 and, where it runs, `integrations/costco` from the same release, on every agent.
+1. Install `pw` 2.4 and, where it runs, `integrations/costco` from the same release, on every agent.
 2. On one agent: `pw upgrade`, then `pw doctor`.
 
 What `pw upgrade` changes:
@@ -64,10 +64,11 @@ What `pw upgrade` changes:
 - **From 2.0:** `Receipts` gains an `account` column, and `Sync` is rewritten with `sync`, `account` and `prices` columns. The existing importer row becomes the store's `primary` account and keeps refreshing prices. Every command keeps working without an `--account` flag.
 - **From 2.0 or 2.1:** `Receipts` gains `tax` and `savings` columns, and an empty `PriceHistory` tab is added.
 - **From 2.0, 2.1 or 2.2:** `List` gains an `any_of` column (item keys any one of which satisfies a request), and an empty `Notes` tab is added.
+- **From 2.0, 2.1, 2.2 or 2.3:** an empty `Accounts` tab is added, for bootstrapping an agent's credentials from the sheet.
 
 No other row is touched, and running it twice does nothing.
 
-Between the two steps, an agent on 2.3 refuses to write and says to run `pw upgrade`. After step 2, an agent still on an older `pw` refuses to write and says to update. Neither can damage the sheet.
+Between the two steps, an agent on 2.4 refuses to write and says to run `pw upgrade`. After step 2, an agent still on an older `pw` refuses to write and says to update. Neither can damage the sheet.
 
 It writes the new headers to the right of the last one on `Receipts`. Tabs made by `pw init` have room. If someone has deleted the spare columns from that tab, add three first.
 
