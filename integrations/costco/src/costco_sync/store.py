@@ -136,6 +136,17 @@ class StateStore:
         )
         self._db.commit()
 
+    def meta(self, key: str) -> str:
+        row = self._db.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+        return row[0] if row is not None else ""
+
+    def set_meta(self, key: str, value: str) -> None:
+        self._db.execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+            (key, value),
+        )
+        self._db.commit()
+
     def price_checks(self) -> dict[str, PriceCheck]:
         rows = self._db.execute(
             "SELECT item_number, next_check_at, miss_count FROM price_checks"

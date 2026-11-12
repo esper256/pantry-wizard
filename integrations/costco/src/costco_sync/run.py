@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -35,6 +35,11 @@ from costco_sync.setupflow import (
 from costco_sync.store import BELOW_BASELINE_RECONCILED, StateStore
 
 WAREHOUSE_LOOKBACK_DAYS = 180
+# A receipt can post to the account weeks after the trip. Once a week the daily
+# run looks this far back. Known lines are skipped, so asking again is safe.
+LATE_RECEIPT_LOOKBACK_DAYS = 45
+LATE_RECEIPT_EVERY_DAYS = 7
+LAST_LONG_LOOKBACK = "last_long_lookback"
 
 
 def _local_date(now: datetime, timezone_name: str) -> date:
@@ -58,6 +63,22 @@ def default_window(today: date, last_success: date | None) -> tuple[date, date]:
     if start > today:
         start = today
     return start, today
+
+
+def run_window(today: date, store: StateStore) -> tuple[date, date, bool]:
+    """The daily window, widened once a week to catch receipts that posted late."""
+    start, end = default_window(today, store.last_success_through())
+    last_long = _parse_day(store.meta(LAST_LONG_LOOKBACK))
+    if last_long is not None and (today - last_long).days < LATE_RECEIPT_EVERY_DAYS:
+        return start, end, False
+    return min(start, today - timedelta(days=LATE_RECEIPT_LOOKBACK_DAYS)), end, True
+
+
+def _parse_day(text: str) -> date | None:
+    try:
+        return date.fromisoformat(text)
+    except ValueError:
+        return None
 
 
 def warehouse_listing_window(today: date, since: date | None) -> tuple[date, date]:
@@ -178,6 +199,7 @@ def import_windows(
             today=_local_date(now, snapshot.household_timezone),
             buy_ids=buy_ids,
             reconcile=reconcile,
+            priority=snapshot.priority_item_numbers,
         )
         if not due:
             return PriceLookupResult(ok=True, quotes=[])
@@ -228,6 +250,12 @@ def import_windows(
             seen = set(requested if result.checked is None else result.checked)
             if all(sku in seen for sku in reconcile):
                 store.set_flag(BELOW_BASELINE_RECONCILED)
+    # Which numbers Costco answered for, so the sheet can say when a price was
+    # last checked even when it did not change.
+    answered = checked if result is not None and result.ok else []
+    priced = {quote.item_number for quote in result.quotes if quote.current_price is not None} if answered else set()
+    mutations["checked_item_numbers"] = sorted(sku for sku in answered if sku in priced)
+    mutations["missed_item_numbers"] = sorted(sku for sku in answered if sku not in priced)
     summary = build_summary(
         snapshot,
         kept,

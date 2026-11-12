@@ -19,6 +19,9 @@ QUIET_INTERVAL_DAYS = 7
 OLD_QUIET_INTERVAL_DAYS = 30
 OLD_PURCHASE_DAYS = 365
 MISS_CAP_DAYS = 90
+# A trip refresh is on someone's way to the store. About three minutes of pacing.
+TRIP_PRICE_SKUS = 60
+TRIP_MAX_MISSES = 3
 
 
 class PriceCheck:
@@ -91,8 +94,16 @@ def select_due(
     today: date,
     buy_ids: set[str] | None = None,
     reconcile: set[str] | None = None,
+    priority: list[str] | None = None,
 ) -> list[str]:
-    """Linked rows and promotions, then a first pass, then quiet rechecks."""
+    """Linked rows and promotions, then a first pass, then quiet rechecks.
+
+    A ``priority`` list is a trip refresh. Only those numbers are priced, in
+    the order given, whatever the schedule says. Numbers Costco keeps failing
+    to price are left for the daily run.
+    """
+    if priority is not None:
+        return _trip_due(skus, priority, checks)
     moment = _aware(now)
     buying = buy_ids or set()
     forced = reconcile or set()
@@ -138,6 +149,19 @@ def select_due(
         return ordered[:CATCHUP_PRICE_SKUS]
     ordered = head + _by_oldest_check(quiet_due, checks)
     return ordered[:STEADY_PRICE_SKUS]
+
+
+def _trip_due(skus: list[str], priority: list[str], checks: dict[str, PriceCheck]) -> list[str]:
+    known = set(skus)
+    due: list[str] = []
+    for sku in priority:
+        if sku not in known or sku in due:
+            continue
+        check = checks.get(sku)
+        if check is not None and check.miss_count >= TRIP_MAX_MISSES:
+            continue
+        due.append(sku)
+    return due[:TRIP_PRICE_SKUS]
 
 
 def advance_checks(

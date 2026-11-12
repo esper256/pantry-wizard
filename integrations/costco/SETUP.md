@@ -4,23 +4,27 @@ This is the procedure for “install the Costco integration.” Follow it in ord
 
 Say: “I’ll follow the Costco setup from the pantry-wizard repo.”
 
+`pw` must already work: `pw doctor` reports no problems. `PW_AGENT` is this Bot’s name. Every `pw sync` command below uses it as the lease owner.
+
 ## 1. Confirm the workbook
 
-Read `Config`, `Items`, `RetailMemory`, `Events.source_ref`, and `Integrations` with the Sheets plugin.
+```bash
+pw sync snapshot costco > household.json
+```
 
-If the `costco` row has a `lease_until` still in the future and a different `owner`, stop. Say which Bot holds the lease and until when. Do not import. Do not save another daily routine.
+Look at `integrations` in that file. An empty list means Costco has never been set up on this sheet. Go on.
 
-If `membership_fingerprint` is already set, remember it. A later download that hashes to a different membership stops the setup. Say this sheet is already linked to another Costco membership.
+If the `costco` entry has a `lease_until` still in the future and an `owner` that is not this Bot, stop. Say which Bot holds the lease and until when. Do not import. Do not save another daily routine.
+
+If `membership_fingerprint` is already set, a later download from a different membership stops with exit code 4. Say this sheet is already linked to another Costco membership.
 
 ## 2. Install the CLI
 
-Clone https://github.com/esper256/pantry-wizard under `/workspace` if it is not already there. Then:
-
 ```bash
-pip install -e /workspace/integrations/costco
+pip install "git+https://github.com/esper256/pantry-wizard@v2.0.0#subdirectory=integrations/costco"
 ```
 
-Computer Update, Recover, and Reset remove installed packages, so every later run reinstalls from this checkout.
+Use the same release as your `pw`. Computer Update, Recover, and Reset remove installed packages, so every later run installs both again first.
 
 ## 3. Log in and prove the receipt list works
 
@@ -59,32 +63,32 @@ Use `costco-sync warehouses`, not the warehouse selected on costco.com. That set
 
 Do not import until they confirm. Other warehouses in the account, including a previous city’s, are not household history.
 
-Write an `Integrations` row:
+Then claim the import for this Bot, with the confirmed warehouse:
 
-- `integration_key` = `costco`
-- `store` = `Costco`
-- `status` = `setup`
-- `location` = the confirmed warehouse, such as `121 Foster City`
-- `owner` = this Bot’s name
-- `lease_until` = now plus 36 hours
+```bash
+pw sync lease costco --location "121 Foster City" --status setup
+```
 
-Read the row back. If `owner` is not this Bot, stop. Someone else took the lease.
+The location is the number and name exactly as `warehouses` printed them. If the command says another Bot holds the lease, stop. Nothing was changed.
 
 ## 5. Say whether this is a first download
 
-Export a snapshot JSON with `household_timezone`, `items`, `retail_memory`, `integrations`, and every `Events.source_ref` as `known_source_refs`. The `costco` row must include `location`, `membership_fingerprint`, `owner`, `lease_until`, `history_from`, and `history_through` when those cells exist. Then run `costco-sync check --snapshot household.json`. A plugin-less Bot applies the mutation file with `costco-sync apply`, which is the tested meaning of the Sheets write and does not call Google.
+```bash
+pw sync snapshot costco > household.json
+costco-sync check --snapshot household.json
+```
 
-If that snapshot has no `costco:` source ref and the row has no `history_from`, say: “This sheet has no Costco history. The first download from `<location>` is about to happen, and receipts from other warehouses will be skipped.” Wait for agreement.
+If `known_source_refs` in the snapshot is empty and the `costco` entry has no `history_from`, say: “This sheet has no Costco history. The first download from `<location>` is about to happen, and receipts from other warehouses will be skipped.” Wait for agreement.
 
-If those refs or `history_from` / `history_through` already exist, say the saved span and that this run will fetch only the gap. Do not download the full history again.
+If there are refs or a saved `history_from` / `history_through`, say the saved span and that this run will fetch only the gap. Do not download the full history again.
 
 ## 6. Download
 
 ```bash
-costco-sync history --snapshot household.json --out mutations.json --owner <this-bot>
+costco-sync history --snapshot household.json --out mutations.json --owner $PW_AGENT
 ```
 
-The command keeps receipts whose warehouse number matches `Integrations.location`. It walks backward about a year at a time until a year is empty or Costco rejects the range. On a second setup it requests only the gap.
+The command keeps receipts whose warehouse number matches the confirmed location. It walks backward about a year at a time until a year is empty or Costco rejects the range. On a second setup it requests only the gap.
 
 Exit code 3 means another Bot holds the lease. Exit code 4 means the membership does not match this sheet. Stop and explain. Do not apply the file. Those two cases are not Costco API bugs. Do not file an issue for them.
 
@@ -92,33 +96,31 @@ Exit code 2 means auth failed. Do not apply an older mutation file over current 
 
 ## 7. Apply and tell the truth
 
-If `Config.schema_version` is older than the schema loaded from `schema_url`, apply the upgrade note in that schema before writing. For schema 0.3, append `RetailMemory` headers `availability` and `sale_scope` after the existing headers. Do not reorder columns and do not fill the new cells by hand.
+```bash
+pw sync apply costco mutations.json
+```
 
-Apply the mutation file with the Sheets plugin:
+Tell the user the `summary` line in the output. Quote it. Do not invent receipt counts, dates, or item counts. If `closed` is not empty, those requests were on a receipt and came off the list; say so.
 
-1. Leave `Items` unchanged. Do not add a household item because it appeared on a receipt.
-2. Write `aliases` for each `item_alias_updates` entry. Do not replace the rest of the row.
-3. Append an event only when its `source_ref` is not already present. Do not append a row for a price check.
-4. Update `RetailMemory` where `retail_key` already exists. Append a row only for a new key.
-5. Update the existing `costco` row from `integration_upsert`: `status`, `location`, `membership_fingerprint`, `history_from`, `history_through`, `last_sync_at`, and `last_summary`. Append that row only if it does not exist yet. Do not copy `owner` or `lease_until` from the file, and do not append a second `costco` row. The membership number itself is not in the file.
+Do not edit the sheet any other way. The apply adds receipts, their lines, and any product it has not seen before, and replaces current prices. It does not add household items, and it does not change what anyone asked for beyond closing what a receipt covers.
 
-Tell the user the `summary.text` line the command printed. Quote it. Do not invent receipt counts, dates, or item counts.
-
-A first import leaves `item_id` blank unless a household item already has the alias `costco:<itemNumber>` or its name exactly equals the receipt line. That is expected. Do not invent links. `search_products` returns nothing on purpose. A wrong SKU is worse than an unmatched row.
-
-After the apply, for items the household buys, wants, or already ties to Costco, show `RetailMemory` rows whose `receipt_name` or `retailer_name` might be that item. Ask the person to confirm. On a yes, set that item's alias to include `costco:<itemNumber>` and set `RetailMemory.item_id`. On a later sync, rows that already have that alias get `item_id` filled in. Old `Events` rows stay as they were. The trip question can still read an unlinked `RetailMemory` row for the store. The link is what connects that price to a household item.
+A first import links a product to a household item only when the item’s name or alias exactly equals the name on the receipt. That is expected. Do not guess the rest, and do not ask about them one at a time. For products the household buys often that have no item, bank one `ask` operation each with `kind` `link`, your suggested item, and the purchase count as evidence. The person answers them in cards, as `AGENT_INSTRUCTIONS.md` describes. A wrong link is worse than no link.
 
 ## 8. Keep the lease and save the routine
 
-Set `lease_until` to now plus 36 hours and `status` to `active`.
+```bash
+pw sync lease costco --status active
+```
 
 Only after the summary has been said, save the daily routine:
 
-1. Reinstall `integrations/costco`.
-2. Export the snapshot, including `integrations` and `known_source_refs`.
-3. Run `costco-sync run --snapshot household.json --out mutations.json --owner <this-bot>`.
-4. Apply the mutation file the same way.
-5. Renew `lease_until` for 36 hours.
-6. Stay quiet unless auth failed or a staple newly went on sale. When Costco’s API errors, file a redacted GitHub issue as described in [integrations/README.md](../README.md). Do not paste the refresh token into that issue.
+1. Install `pw` and `integrations/costco` again, from the release in step 2.
+2. `pw sync lease costco`. If it refuses, stop without writing.
+3. `pw sync snapshot costco > household.json`
+4. `costco-sync run --snapshot household.json --out mutations.json --owner $PW_AGENT`. On exit code 2, 3, or 4, stop without applying.
+5. `pw sync apply costco mutations.json`
+6. Stay quiet unless auth failed, a request was closed by a receipt, or a staple newly went on sale. When Costco’s API errors, file a redacted GitHub issue as described in [integrations/README.md](../README.md). Do not paste the refresh token into that issue.
+
+The daily run prices one paced batch on its own schedule and takes about four minutes. Do not try to make it check everything. A trip uses the short refresh in `AGENT_INSTRUCTIONS.md` instead: the same three commands with `--trip` on the snapshot.
 
 Setup is finished when that summary has been said. The next “I’m going to Costco” question then has history to read.

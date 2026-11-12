@@ -94,7 +94,7 @@ def test_deposit_discount_sku_and_payment_fields_never_enter_the_mutation():
     purchased = [event for event in mutations["events"] if event["event_type"] == "purchased"]
     assert len(purchased) == 1
     assert purchased[0]["price_paid"] == "9.99"
-    assert purchased[0]["actor"] == "membership import"
+    assert purchased[0]["actor"] == "costco-sync"
     assert purchased[0]["occurred_at"] == "2026-09-01"
 
 

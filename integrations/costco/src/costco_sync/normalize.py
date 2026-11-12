@@ -24,6 +24,7 @@ _FEE_PHRASES = (
     "ECO FEE",
     "RECYCLE FEE",
     "CRV",
+    "REDEMP VAL",
 )
 _CENT = Decimal("0.01")
 
@@ -315,7 +316,7 @@ def _pair_lines(raw_items: list[dict], barcode: str) -> list[NormalizedLine]:
         if parent and amount < 0:
             savings[parent] = savings.get(parent, Decimal(0)) + abs(amount)
             continue
-        if not item_number or _is_fee(description):
+        if not item_number or is_fee(description):
             continue
         line = RawLine(item_number=item_number, description=description, unit=unit, amount=amount)
         if amount < 0 or unit < 0:
@@ -440,7 +441,7 @@ def _discount_parent(description: str) -> str | None:
     return None
 
 
-def _is_fee(description: str) -> bool:
+def is_fee(description: str) -> bool:
     text = description.upper()
     if any(phrase in text for phrase in _FEE_PHRASES):
         return True

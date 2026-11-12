@@ -11,9 +11,10 @@ from costco_sync.privacy import private_umask, tighten_private_files
 
 from costco_sync.models import AuthError, LeaseError, LocationRequired, MembershipError, RangeRejected
 from costco_sync.run import (
-    default_window,
+    LAST_LONG_LOOKBACK,
     format_warehouse_line,
     list_warehouses,
+    run_window,
     warehouse_listing_window,
     write_history,
     write_import,
@@ -212,7 +213,7 @@ def _run(args: argparse.Namespace) -> int:
     store = StateStore(args.state)
     try:
         today = _today(args.now)
-        start, end = default_window(today, store.last_success_through())
+        start, end, long_lookback = run_window(today, store)
         mutations = write_import(
             args.snapshot,
             args.out,
@@ -223,6 +224,8 @@ def _run(args: argparse.Namespace) -> int:
             now=_now(args.now),
             owner=args.owner,
         )
+        if long_lookback:
+            store.set_meta(LAST_LONG_LOOKBACK, today.isoformat())
     finally:
         store.close()
     _print_result(mutations, args.out)
