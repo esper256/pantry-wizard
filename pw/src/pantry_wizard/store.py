@@ -15,6 +15,9 @@ from .errors import PwError  # noqa: F401  (re-exported)
 from .schema import SCHEMA_VERSION, TABS
 
 
+WRITTEN_LAST = ("Receipts",)
+
+
 class Table:
     def __init__(self, name: str, raw: list[list[str]]):
         self.tab = TABS[name]
@@ -171,7 +174,16 @@ class Workbook:
         for name in self._replaced:
             table = self.tables[name]
             replaces[name] = [list(table.header)] + [table.as_values(r) for r in table.rows]
-        self.backend.commit(appends, list(self._cells), replaces)
+        # A commit is several calls and can stop between any two. A receipt
+        # row is what makes a later attempt skip the receipt as already
+        # recorded, so it goes last, after its lines and after the requests it
+        # closes. A commit that stops early leaves no receipt row, and the
+        # same receipt sent again finishes the job.
+        last = {name: appends.pop(name) for name in WRITTEN_LAST if name in appends}
+        if appends or self._cells or replaces:
+            self.backend.commit(appends, list(self._cells), replaces)
+        if last:
+            self.backend.commit(last, [], {})
         self._appends, self._cells, self._replaced = {}, [], set()
         # Row numbers of what was just appended are unknown, so anything read
         # after a commit is read fresh.

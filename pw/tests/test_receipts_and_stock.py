@@ -124,6 +124,66 @@ class ReceiptTests(unittest.TestCase):
         self.assertEqual(rows(be, "Products")[0]["item"], "eggs")
         self.assertEqual(rows(be, "Lines")[1]["item"], "ketchup")
 
+    def test_a_write_that_stops_anywhere_is_finished_by_sending_the_receipt_again(self):
+        """Google can fail between any two calls of a commit."""
+        class Stop(Exception):
+            pass
+
+        def scenario(fail_at=None):
+            be = household()
+            egg_history(be, ["2026-09-01"])
+            receipt(be, "costco", "2026-11-10", [{"sku": "1025795", "text": "KS 5DZ EGGS"},
+                                                 {"sku": "500", "text": "SPINDRIFT"}],
+                    source="photo", rid="PH0T0", by="sam")
+            say(be, [{"op": "add", "item": "eggs"}, {"op": "add", "item": "ketchup"}],
+                now=NOW - timedelta(days=2))
+            send = lambda: receipt(be, "costco", "2026-11-10", [
+                {"sku": "1025795", "text": "KS 5DZ EGGS", "unit_price": "12.99"},
+                {"sku": "500", "text": "SPINDRIFT", "unit_price": "9.99"},
+                {"sku": "77", "text": "KETCHUP", "item": "ketchup", "unit_price": "8.49"}], rid="R9")
+            calls = 0
+            if fail_at is not None:
+                real = be.commit
+
+                def failing(appends, cells, replaces):
+                    # One backend call at a time, the way Google sees them.
+                    nonlocal calls
+                    for step in ([({t: r}, [], {}) for t, r in appends.items()]
+                                 + ([({}, cells, {})] if cells else [])):
+                        if calls == fail_at:
+                            raise Stop()
+                        calls += 1
+                        real(*step)
+                be.commit = failing
+                try:
+                    send()
+                    return None, calls, None      # the commit has fewer calls than fail_at
+                except Stop:
+                    be.commit = real
+            got = send()
+            st = stock(be, "eggs")
+            return got.get("status"), calls, {
+                "receipts": sorted((r["receipt"], r["status"], r["lines"]) for r in rows(be, "Receipts")),
+                "lines": sorted(l["line"] for l in rows(be, "Lines")),
+                "open": [r["text"] for r in rows(be, "List") if r["status"] == "open"],
+                "eggs": (st["last_bought"], st["buys_12mo"]),
+                "ketchup_linked": [p["item"] for p in rows(be, "Products") if p["sku"] == "77"],
+            }
+
+        _, _, clean = scenario()
+        self.assertEqual(clean["open"], [])
+        self.assertEqual(clean["eggs"], ("2026-11-10", 2))
+        self.assertIn(("photo:costco:PH0T0", "superseded", "2"), clean["receipts"])
+        stopped_at = []
+        for fail_at in range(8):
+            status, calls, state = scenario(fail_at)
+            if state is None:
+                break
+            stopped_at.append(fail_at)
+            self.assertEqual(status, "recorded", fail_at)   # never "already recorded" with work undone
+            self.assertEqual(state, clean, fail_at)
+        self.assertGreaterEqual(len(stopped_at), 4)
+
     def test_lines_without_a_sku_still_feed_the_rhythm(self):
         be = household()
         for d in ("2026-08-01", "2026-09-01", "2026-10-02"):

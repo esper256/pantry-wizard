@@ -4,7 +4,9 @@ A receipt is one `Receipts` row and one `Lines` row per line. Lines are
 append-only. Nothing is ever counted twice, because counts are derived from
 lines whose receipt is still `recorded`:
 
-- Ingesting the same receipt again is a no-op.
+- Ingesting the same receipt again is a no-op. The receipt row is written
+  last, so "the same receipt" means one that was saved completely. After an
+  attempt that stopped halfway, sending it again writes only what is missing.
 - When an official receipt arrives for a trip already logged from a photo, the
   photo receipt is marked `superseded` and its lines stop counting.
 
@@ -147,6 +149,8 @@ def ingest(wb: Workbook, rec: dict, by: str) -> dict:
                 bought_items.append(resolved)
             else:
                 unlinked += 1
+        if wb.t("Lines").get(f"{key}:{n}") is not None:
+            continue  # written by an attempt that stopped before the receipt row
         wb.append("Lines", {
             "line": f"{key}:{n}", "receipt": key, "n": n,
             # The line names an item only when the product does not already say so.
