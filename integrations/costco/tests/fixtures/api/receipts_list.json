@@ -1,0 +1,251 @@
+{
+  "data": {
+    "receiptsWithCounts": {
+      "inWarehouse": 3,
+      "gasStation": 0,
+      "carWash": 0,
+      "gasAndCarWash": 0,
+      "receipts": [
+        {
+          "warehouseName": "CONCORD",
+          "receiptType": "In-Warehouse",
+          "documentType": "WarehouseReceiptDetail",
+          "transactionDateTime": "2026-01-16T15:04:00",
+          "transactionBarcode": "21066300110012601161111",
+          "transactionType": "Sales",
+          "total": 157.53,
+          "totalItemCount": 21,
+          "itemArray": [
+            {
+              "itemNumber": "303285"
+            },
+            {
+              "itemNumber": "897980"
+            },
+            {
+              "itemNumber": "370318"
+            },
+            {
+              "itemNumber": "842994"
+            },
+            {
+              "itemNumber": "27003"
+            },
+            {
+              "itemNumber": "1949203"
+            },
+            {
+              "itemNumber": "370683"
+            },
+            {
+              "itemNumber": "647465"
+            },
+            {
+              "itemNumber": "87745"
+            },
+            {
+              "itemNumber": "1710454"
+            },
+            {
+              "itemNumber": "1810037"
+            },
+            {
+              "itemNumber": "660968"
+            },
+            {
+              "itemNumber": "1369768"
+            },
+            {
+              "itemNumber": "30669"
+            },
+            {
+              "itemNumber": "1096379"
+            },
+            {
+              "itemNumber": "2"
+            },
+            {
+              "itemNumber": "568915"
+            },
+            {
+              "itemNumber": "519638"
+            },
+            {
+              "itemNumber": "5887"
+            },
+            {
+              "itemNumber": "1970759"
+            },
+            {
+              "itemNumber": "371834"
+            }
+          ],
+          "tenderArray": [
+            {
+              "tenderTypeCode": "064",
+              "tenderDescription": "COSTCO VISA",
+              "amountTender": 157.53
+            }
+          ],
+          "couponArray": []
+        },
+        {
+          "warehouseName": "CONCORD",
+          "receiptType": "In-Warehouse",
+          "documentType": "WarehouseReceiptDetail",
+          "transactionDateTime": "2025-12-17T09:44:00",
+          "transactionBarcode": "21066300210022512171111",
+          "transactionType": "Refund",
+          "total": -1140.38,
+          "totalItemCount": -6,
+          "itemArray": [
+            {
+              "itemNumber": "0"
+            },
+            {
+              "itemNumber": "0"
+            },
+            {
+              "itemNumber": "1951495"
+            },
+            {
+              "itemNumber": "1513304"
+            },
+            {
+              "itemNumber": "1889168"
+            },
+            {
+              "itemNumber": "712309"
+            },
+            {
+              "itemNumber": "712309"
+            },
+            {
+              "itemNumber": "712309"
+            },
+            {
+              "itemNumber": "712309"
+            },
+            {
+              "itemNumber": "712309"
+            },
+            {
+              "itemNumber": "712309"
+            }
+          ],
+          "tenderArray": [
+            {
+              "tenderTypeCode": "055",
+              "tenderDescription": "RTC Ecom Purchase",
+              "amountTender": -1140.38
+            }
+          ],
+          "couponArray": []
+        },
+        {
+          "warehouseName": "CONCORD",
+          "receiptType": "In-Warehouse",
+          "documentType": "WarehouseReceiptDetail",
+          "transactionDateTime": "2025-05-23T09:46:00",
+          "transactionBarcode": "21066300310032505231111",
+          "transactionType": "Sales",
+          "total": 285.76,
+          "totalItemCount": 26,
+          "itemArray": [
+            {
+              "itemNumber": "30669"
+            },
+            {
+              "itemNumber": "1618286"
+            },
+            {
+              "itemNumber": "27003"
+            },
+            {
+              "itemNumber": "1619921"
+            },
+            {
+              "itemNumber": "354117"
+            },
+            {
+              "itemNumber": "4473"
+            },
+            {
+              "itemNumber": "1239521"
+            },
+            {
+              "itemNumber": "352920"
+            },
+            {
+              "itemNumber": "1014484"
+            },
+            {
+              "itemNumber": "26545"
+            },
+            {
+              "itemNumber": "1042132"
+            },
+            {
+              "itemNumber": "38742"
+            },
+            {
+              "itemNumber": "568915"
+            },
+            {
+              "itemNumber": "6021"
+            },
+            {
+              "itemNumber": "2"
+            },
+            {
+              "itemNumber": "1848324"
+            },
+            {
+              "itemNumber": "353955"
+            },
+            {
+              "itemNumber": "1315870"
+            },
+            {
+              "itemNumber": "87745"
+            },
+            {
+              "itemNumber": "4032"
+            },
+            {
+              "itemNumber": "720"
+            },
+            {
+              "itemNumber": "354116"
+            },
+            {
+              "itemNumber": "41400"
+            },
+            {
+              "itemNumber": "1744701"
+            },
+            {
+              "itemNumber": "352801"
+            },
+            {
+              "itemNumber": "3535111"
+            }
+          ],
+          "tenderArray": [
+            {
+              "tenderTypeCode": "049",
+              "tenderDescription": "CITI Rebate",
+              "amountTender": 309.89
+            },
+            {
+              "tenderTypeCode": "001",
+              "tenderDescription": "Cash",
+              "amountTender": -24.13
+            }
+          ],
+          "couponArray": []
+        }
+      ]
+    }
+  }
+}

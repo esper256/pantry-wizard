@@ -1,0 +1,198 @@
+{
+  "data": {
+    "receiptsWithCounts": {
+      "receipts": [
+        {
+          "warehouseName": "CONCORD",
+          "receiptType": "In-Warehouse",
+          "documentType": "WarehouseReceiptDetail",
+          "transactionDateTime": "2025-12-17T09:44:00",
+          "transactionDate": "2025-12-17",
+          "companyNumber": 1,
+          "warehouseNumber": 663,
+          "operatorNumber": 641,
+          "warehouseShortName": "CONCORD",
+          "registerNumber": 2,
+          "transactionNumber": 1002,
+          "transactionType": "Refund",
+          "transactionBarcode": "21066300210022512171111",
+          "total": -1140.38,
+          "warehouseAddress1": "2400 MONUMENT BLVD",
+          "warehouseAddress2": null,
+          "warehouseCity": "CONCORD",
+          "warehouseState": "CA",
+          "warehouseCountry": "US",
+          "warehousePostalCode": "94520",
+          "totalItemCount": -6,
+          "subTotal": -1039.96,
+          "taxes": -100.42,
+          "invoiceNumber": null,
+          "sequenceNumber": null,
+          "membershipNumber": "111111111111",
+          "instantSavings": -1000.08,
+          "itemArray": [
+            {
+              "itemNumber": "0",
+              "itemDescription01": "Dept Ring || 86",
+              "itemDescription02": null,
+              "itemIdentifier": null,
+              "itemDepartmentNumber": 0,
+              "unit": 0,
+              "amount": -10,
+              "taxFlag": "N",
+              "transDepartmentNumber": 86,
+              "itemUnitPriceAmount": 99.99
+            },
+            {
+              "itemNumber": "0",
+              "itemDescription01": "Dept Ring || 52",
+              "itemDescription02": null,
+              "itemIdentifier": null,
+              "itemDepartmentNumber": 0,
+              "unit": 0,
+              "amount": -29.98,
+              "taxFlag": "Y",
+              "transDepartmentNumber": 52,
+              "itemUnitPriceAmount": 99.99
+            },
+            {
+              "itemNumber": "1951495",
+              "itemDescription01": "DELL 16 LT",
+              "itemDescription02": "R7-250/16/1/WIN11/P90",
+              "itemIdentifier": null,
+              "itemDepartmentNumber": 24,
+              "unit": -2,
+              "amount": -1499.98,
+              "taxFlag": "Y",
+              "transDepartmentNumber": 24,
+              "itemUnitPriceAmount": 749.99
+            },
+            {
+              "itemNumber": "1513304",
+              "itemDescription01": "MCAFEE",
+              "itemDescription02": "(I DEVICE) (ESD)",
+              "itemIdentifier": null,
+              "itemDepartmentNumber": 24,
+              "unit": -2,
+              "amount": -0.02,
+              "taxFlag": "N",
+              "transDepartmentNumber": 24,
+              "itemUnitPriceAmount": 0.01
+            },
+            {
+              "itemNumber": "1889168",
+              "itemDescription01": "OFFICE 365",
+              "itemDescription02": "3 MONTH SUBSCRIPTION",
+              "itemIdentifier": null,
+              "itemDepartmentNumber": 24,
+              "unit": -2,
+              "amount": -0.02,
+              "taxFlag": "N",
+              "transDepartmentNumber": 24,
+              "itemUnitPriceAmount": 0.01
+            },
+            {
+              "itemNumber": "712309",
+              "itemDescription01": "CPN/ E/RETUN",
+              "itemDescription02": null,
+              "itemIdentifier": null,
+              "itemDepartmentNumber": 0,
+              "unit": 2,
+              "amount": 500,
+              "taxFlag": null,
+              "transDepartmentNumber": 0,
+              "itemUnitPriceAmount": 0
+            },
+            {
+              "itemNumber": "712309",
+              "itemDescription01": "CPN/ E/RETUN",
+              "itemDescription02": null,
+              "itemIdentifier": null,
+              "itemDepartmentNumber": 0,
+              "unit": 2,
+              "amount": 500,
+              "taxFlag": null,
+              "transDepartmentNumber": 0,
+              "itemUnitPriceAmount": 0
+            },
+            {
+              "itemNumber": "712309",
+              "itemDescription01": "CPN/ E/RETUN",
+              "itemDescription02": null,
+              "itemIdentifier": null,
+              "itemDepartmentNumber": 0,
+              "unit": 2,
+              "amount": 0.02,
+              "taxFlag": null,
+              "transDepartmentNumber": 0,
+              "itemUnitPriceAmount": 0
+            },
+            {
+              "itemNumber": "712309",
+              "itemDescription01": "CPN/ E/RETUN",
+              "itemDescription02": null,
+              "itemIdentifier": null,
+              "itemDepartmentNumber": 0,
+              "unit": 2,
+              "amount": 0.02,
+              "taxFlag": null,
+              "transDepartmentNumber": 0,
+              "itemUnitPriceAmount": 0
+            },
+            {
+              "itemNumber": "712309",
+              "itemDescription01": "CPN/ E/RETUN",
+              "itemDescription02": null,
+              "itemIdentifier": null,
+              "itemDepartmentNumber": 0,
+              "unit": 2,
+              "amount": 0.02,
+              "taxFlag": null,
+              "transDepartmentNumber": 0,
+              "itemUnitPriceAmount": 0
+            },
+            {
+              "itemNumber": "712309",
+              "itemDescription01": "CPN/ E/RETUN",
+              "itemDescription02": null,
+              "itemIdentifier": null,
+              "itemDepartmentNumber": 0,
+              "unit": 2,
+              "amount": 0.02,
+              "taxFlag": null,
+              "transDepartmentNumber": 0,
+              "itemUnitPriceAmount": 0
+            }
+          ],
+          "tenderArray": [
+            {
+              "tenderTypeCode": "055",
+              "tenderSubTypeCode": null,
+              "tenderDescription": "RTC Ecom Purchase",
+              "amountTender": -1140.38,
+              "displayAccountNumber": "XXXX",
+              "sequenceNumber": null,
+              "approvalNumber": null,
+              "tenderTypeName": "RTC Ecom Pur",
+              "walletType": null
+            }
+          ],
+          "subTaxes": {
+            "tax1": null,
+            "tax2": null,
+            "tax3": null,
+            "tax4": null,
+            "aTaxPercent": null,
+            "aTaxLegend": "A",
+            "aTaxAmount": -100.42,
+            "aTaxPrintCode": null,
+            "bTaxPercent": null,
+            "bTaxLegend": null,
+            "bTaxAmount": null,
+            "bTaxPrintCode": null
+          }
+        }
+      ]
+    }
+  }
+}
