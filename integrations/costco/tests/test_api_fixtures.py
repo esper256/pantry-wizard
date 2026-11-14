@@ -59,6 +59,16 @@ def test_instant_savings_fixture_keeps_spaced_slash_children():
     receipt = parse_receipt_detail(payload)
     assert receipt.instant_savings == Decimal("7.5")
     assert any(line.kind == "purchase" for line in receipt.lines)
+    # Every slash child, whatever its spacing, nets into its parent purchase;
+    # none is left as a phantom refund under the discount SKU (issue #50).
+    assert not [line for line in receipt.lines if line.kind == "refund"]
+    netted = sum(((line.pre_savings_unit_price - line.unit_price_paid) * line.quantity
+                  for line in receipt.lines if line.kind == "purchase"), Decimal(0))
+    assert netted == receipt.instant_savings
+    by_item = {line.item_number: line for line in receipt.lines}
+    assert by_item["897980"].unit_price_paid == Decimal("7.99")   # /  897980, two spaces
+    assert by_item["1949203"].unit_price_paid == Decimal("6.79")  # / 1949203, one space
+    assert by_item["1970759"].unit_price_paid == Decimal("10.49")  # /1970759, no space
 
 
 def test_refund_fixture_parses_refund_lines():
@@ -69,6 +79,12 @@ def test_refund_fixture_parses_refund_lines():
     receipt = parse_receipt_detail(payload)
     assert any(line.kind == "refund" for line in receipt.lines)
     assert any(line.item_number == "1951495" for line in receipt.lines)
+    items = {line.item_number for line in receipt.lines}
+    # Department-ring rows (itemNumber "0") are not a product...
+    assert "0" not in items
+    # ...and CPN / electronic-return coupons are never imported as purchases.
+    assert not [line for line in receipt.lines if line.item_number == "712309"]
+    assert all(line.kind == "refund" for line in receipt.lines)
 
 
 def test_multi_tender_fixture_keeps_both_tenders():
@@ -87,6 +103,11 @@ def test_multi_tender_fixture_keeps_both_tenders():
     receipt = parse_receipt_detail(payload)
     assert receipt.instant_savings == Decimal("38.1")
     assert any(line.kind == "purchase" for line in receipt.lines)
+    assert not [line for line in receipt.lines if line.kind == "refund"]
+    netted = sum(((line.pre_savings_unit_price - line.unit_price_paid) * line.quantity
+                  for line in receipt.lines if line.kind == "purchase"), Decimal(0))
+    assert netted == receipt.instant_savings  # includes the four-space `/    720`
+    assert {line.item_number: line for line in receipt.lines}["720"].unit_price_paid == Decimal("16.99")
 
 
 def test_list_fixture_barcodes_match_detail_fixtures():
