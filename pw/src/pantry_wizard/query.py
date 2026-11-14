@@ -45,12 +45,20 @@ NUMBERS = {
 _SIGNED = "COALESCE(l.qty, 1) * l.unit_price * CASE l.kind WHEN 'refund' THEN -1 ELSE 1 END"
 _ITEM = "COALESCE(NULLIF(l.item, ''), p.item, '')"
 
+# A purchase line's leftover instant-savings discount: refund lines on the same
+# receipt whose text is `/<this product's sku>`, from imports before costco-sync
+# 0.4.2 folded them in. Zero for every line a current importer writes.
+_DISCOUNT = ("COALESCE((SELECT SUM(rf.unit_price * COALESCE(rf.qty, 1)) FROM Lines rf "
+             "WHERE rf.receipt = l.receipt AND rf.kind = 'refund' AND l.product != '' "
+             "AND replace(rf.text, ' ', '') = '/' || substr(l.product, instr(l.product, ':') + 1)), 0)")
+
 VIEWS = {
     "purchases": ("""
         SELECT r.date AS date, r.store AS store, r.account AS account, {item} AS item,
                COALESCE(i.name, '') AS item_name, COALESCE(NULLIF(p.name, ''), l.text) AS name,
-               COALESCE(l.qty, 1) AS qty, l.unit_price AS unit_price,
-               ROUND(COALESCE(l.qty, 1) * l.unit_price, 2) AS amount,
+               COALESCE(l.qty, 1) AS qty,
+               ROUND(l.unit_price - {discount} / COALESCE(l.qty, 1), 2) AS unit_price,
+               ROUND(COALESCE(l.qty, 1) * l.unit_price - {discount}, 2) AS amount,
                r.source AS source, l.product AS product, r.receipt AS receipt
         FROM Lines l JOIN Receipts r ON r.receipt = l.receipt AND r.status = 'recorded'
         LEFT JOIN Products p ON p.product = l.product
@@ -61,7 +69,7 @@ VIEWS = {
                NULL, NULL, NULL, 'said', '', ''
         FROM Log g LEFT JOIN Items i ON i.item = g.item
         WHERE g.kind = 'bought' AND g.item != ''
-        """.format(item=_ITEM),
+        """.format(item=_ITEM, discount=_DISCOUNT),
         "One row per thing bought. Receipts replaced by an official copy, fees, deposits and "
         "refunds are left out. `item` is '' when the product is not linked to an item; `name` is "
         "always filled. `unit_price` is what was paid after the store's discount, before tax. "
@@ -73,9 +81,14 @@ VIEWS = {
                l.product AS product, r.receipt AS receipt
         FROM Lines l JOIN Receipts r ON r.receipt = l.receipt AND r.status = 'recorded'
         LEFT JOIN Products p ON p.product = l.product
-        WHERE l.kind = 'refund'
+        WHERE l.kind = 'refund' AND NOT EXISTS (
+            SELECT 1 FROM Lines pl WHERE pl.receipt = l.receipt AND pl.kind = 'purchase'
+            AND pl.product != '' AND replace(l.text, ' ', '') =
+                '/' || substr(pl.product, instr(pl.product, ':') + 1))
         """.format(item=_ITEM),
-        "One row per thing returned. `amount` is positive: money that came back."),
+        "One row per thing returned. `amount` is positive: money that came back. Leftover "
+        "instant-savings discount lines (text `/<sku>`) are netted into the matching purchase, "
+        "not listed here as returns."),
     "trips": ("""
         SELECT r.date AS date, r.store AS store, r.account AS account, r.source AS source,
                (SELECT ROUND(SUM({signed}), 2) FROM Lines l WHERE l.receipt = r.receipt) AS lines_total,

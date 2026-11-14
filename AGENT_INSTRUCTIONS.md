@@ -9,7 +9,7 @@ Change the sheet only through the `pw` tool. It handles ids, timestamps, layout 
 ## Setup, once per environment
 
 ```
-pip install "git+https://github.com/esper256/pantry-wizard@v2.4.0#subdirectory=pw" google-api-python-client google-auth
+pip install "git+https://github.com/esper256/pantry-wizard@v2.4.1#subdirectory=pw" google-api-python-client google-auth
 export PW_SHEET=<spreadsheet id>
 export PW_SERVICE_ACCOUNT_KEY=<path to the JSON key, from your secret store>
 export PW_AGENT=<your name, e.g. grok-bot>
@@ -182,6 +182,8 @@ Two things that look like several steps are one batch each:
 
 - **A `link` question whose answer is "a new item".** Create the item first, then answer with its key: `[{"op": "new_item", "name": "Tortelloni"}, {"op": "answer", "id": "<id>", "answer": "tortelloni"}]`.
 - **Splitting an item in two.** Create the new item and move the products that belong to it: `[{"op": "new_item", "name": "Party tray cheese"}, {"op": "link", "product": "costco:1234", "item": "party-tray-cheese"}]`. Past purchases follow the product, so each item keeps its own buying rhythm. `pw item <item>` lists an item's products.
+
+`link` moves a product. A single past receipt line that was filed under the wrong item (its own `item` overrides the product link) is moved with `refile`: `{"op": "refile", "line": "<line id>", "item": "party-tray-cheese"}`, or `"item": ""` to drop the line's own item and fall back to the product link. Find the line id with `pw sql "SELECT line, item, text FROM Lines WHERE ..."`.
 
 When someone is at a computer or says "let's do questions", run `pw questions` and show the card: up to eight questions, each with two or three one-tap answers and your suggestion. Apply the replies with `answer` in one batch. A skipped question stays open; do not ask it again in the same session. Never ask during a trip.
 

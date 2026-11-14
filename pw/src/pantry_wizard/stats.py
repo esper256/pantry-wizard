@@ -17,10 +17,18 @@ and the buying rhythm, and can judge better than the word does.
 
 from __future__ import annotations
 
+import re
 from datetime import date
+from decimal import Decimal, InvalidOperation
 from statistics import median
 
 from .schema import OBSERVATIONS
+
+# A leftover instant-savings refund line from an import before costco-sync
+# 0.4.2 netted them: its text is `/` then the parent SKU. New imports fold the
+# discount into the purchase and emit no such line, so this only corrects old
+# data, and never double-counts.
+_DISCOUNT_TEXT = re.compile(r"/\s*(\d+)")
 
 MIN_DATES_FOR_RHYTHM = 3
 RECENT_GAPS = 12
@@ -45,6 +53,8 @@ def purchases(wb) -> list[dict]:
     wb.load("Receipts", "Lines", "Products", "Log")
     receipts = {r["receipt"]: r for r in wb.t("Receipts").rows}
     products = wb.t("Products")
+    discounts = _leftover_discounts(wb.t("Lines").rows)
+    consumed: set[tuple[str, str]] = set()
     out = []
     for line in wb.t("Lines").rows:
         if line["kind"] != "purchase":
@@ -56,12 +66,20 @@ def purchases(wb) -> list[dict]:
         if when is None:
             continue
         product = products.get(line["product"]) if line["product"] else None
+        sku = line["product"].split(":", 1)[1] if ":" in line["product"] else ""
+        key = (line["receipt"], sku)
+        unit_price = line["unit_price"]
+        discount = discounts.get(key)
+        if discount is not None and key not in consumed:
+            # Net the leftover discount into this line's unit price, once.
+            unit_price = _net_unit_price(unit_price, line["qty"], discount)
+            consumed.add(key)
         out.append({
             "date": when,
             "store": rec["store"],
             "item": line["item"] or (product or {}).get("item", ""),
             "product": line["product"],
-            "unit_price": line["unit_price"],
+            "unit_price": unit_price,
             "receipt": rec["receipt"],
         })
     for row in wb.t("Log").where(kind="bought"):
@@ -70,6 +88,38 @@ def purchases(wb) -> list[dict]:
             out.append({"date": when, "store": "", "item": row["item"], "product": "",
                         "unit_price": "", "receipt": ""})
     return out
+
+
+def _dec(text) -> Decimal | None:
+    try:
+        return Decimal(str(text))
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _leftover_discounts(lines: list[dict]) -> dict[tuple[str, str], Decimal]:
+    """Per (receipt, parent SKU), the total of any leftover discount refund lines."""
+    discounts: dict[tuple[str, str], Decimal] = {}
+    for line in lines:
+        if line["kind"] != "refund":
+            continue
+        match = _DISCOUNT_TEXT.fullmatch((line["text"] or "").strip())
+        amount = _dec(line["unit_price"])
+        if not match or amount is None:
+            continue
+        qty = _dec(line["qty"]) or Decimal(1)
+        key = (line["receipt"], match.group(1))
+        discounts[key] = discounts.get(key, Decimal(0)) + amount * qty
+    return discounts
+
+
+def _net_unit_price(unit_price, qty, discount: Decimal) -> str:
+    gross = _dec(unit_price)
+    count = _dec(qty) or Decimal(1)
+    if gross is None or count == 0:
+        return unit_price
+    net = (gross * count - discount) / count
+    return str(net.quantize(Decimal("0.01")))
 
 
 def rhythm(dates: list[date]) -> int | None:
