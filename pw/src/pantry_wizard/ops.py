@@ -337,6 +337,25 @@ def op_link(wb, op):
     return {"product": product["product"], "item": item}
 
 
+def op_refile(wb, op):
+    """Change which household item an existing receipt line is filed under.
+
+    `Lines.item`, when set, overrides the product's link in every view, so a
+    line filed under the wrong item cannot be fixed by relinking the product.
+    This sets the line's own item; `"item": ""` clears it, so the line falls
+    back to the product's link.
+    """
+    wb.load("Lines")
+    line = wb.t("Lines").get(op.get("line") or "")
+    if line is None:
+        raise PwError(f"No line {op.get('line')!r}. Find it with `pw sql \"SELECT line, item, text "
+                      "FROM Lines WHERE ...\"`.")
+    item = _item(wb, op["item"])["item"] if op.get("item") else ""
+    wb.set("Lines", line["line"], {"item": item})
+    _log(wb, op, "fix", item, f'{line["line"]} refiled to {item or "the product link"}')
+    return {"line": line["line"], "item": item}
+
+
 def op_classify(wb, op):
     product = wb.t("Products").get(op.get("product") or "")
     if product is None:
@@ -398,7 +417,7 @@ HANDLERS = {
     "add": op_add, "skip": op_skip, "remind": op_remind, "done": op_done,
     "cancel": op_cancel, "reopen": op_reopen, "saw": op_saw, "note": op_note,
     "new_item": op_new_item,
-    "set_item": op_set_item, "link": op_link, "classify": op_classify,
+    "set_item": op_set_item, "link": op_link, "refile": op_refile, "classify": op_classify,
     "ask": op_ask, "answer": op_answer, "receipt": op_receipt,
 }
 
