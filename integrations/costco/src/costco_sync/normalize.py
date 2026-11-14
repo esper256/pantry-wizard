@@ -328,7 +328,9 @@ def _pair_lines(raw_items: list[dict], barcode: str) -> list[NormalizedLine]:
         if parent and amount < 0:
             savings[parent] = savings.get(parent, Decimal(0)) + abs(amount)
             continue
-        if not item_number or is_fee(description):
+        # Not a product: a missing or department-ring (`0`) item number, a fee,
+        # or a coupon / electronic-return row. None of these is a SKU to record.
+        if not item_number or item_number == "0" or is_fee(description) or is_coupon(description):
             continue
         line = RawLine(item_number=item_number, description=description, unit=unit, amount=amount)
         if amount < 0 or unit < 0:
@@ -447,7 +449,10 @@ def _description(raw: dict) -> str:
 
 
 def _discount_parent(description: str) -> str | None:
-    match = re.fullmatch(r"/(\d+)", description.strip())
+    # The instant-savings child is `/` then any spaces then the parent SKU.
+    # Live receipts use zero, one, two, or four spaces; `.strip()` only removes
+    # the ends, so the spaces after the slash must be allowed here (issue #50).
+    match = re.fullmatch(r"/\s*(\d+)", description.strip())
     if match:
         return match.group(1)
     return None
@@ -458,6 +463,15 @@ def is_fee(description: str) -> bool:
     if any(phrase in text for phrase in _FEE_PHRASES):
         return True
     return re.search(r"\bTAX\b", text) is not None
+
+
+def is_coupon(description: str) -> bool:
+    """A coupon or electronic-return row, such as `CPN/ E/RETUN`.
+
+    These carry a coupon SKU, not a product's, and appear as positive amounts
+    on a refund receipt, so they must not be recorded as purchases.
+    """
+    return re.match(r"\s*CPN\b", description.upper()) is not None
 
 
 def _occurred_on(value: str) -> str:
